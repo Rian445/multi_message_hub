@@ -606,6 +606,136 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _showPrivacyPolicyDialog() {
+    const googleBlue = Color(0xFF8AB4F8);
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1F22),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Row(
+          children: const [
+            Icon(Icons.shield_outlined, color: googleBlue, size: 24),
+            SizedBox(width: 10),
+            Text(
+              'Security & Privacy Policy',
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 18,
+              ),
+            ),
+          ],
+        ),
+        content: SizedBox(
+          width: double.maxFinite,
+          child: SingleChildScrollView(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF282A2E),
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(
+                      color: googleBlue.withValues(alpha: 0.3),
+                    ),
+                  ),
+                  child: const Text(
+                    'Multi-Message Hub is engineered with a strict local-only, zero-telemetry architecture. Your messages, pairing credentials, and sessions are 100% private to you.',
+                    style: TextStyle(
+                      color: Colors.white70,
+                      fontSize: 12,
+                      height: 1.4,
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 16),
+                _buildPolicyItem(
+                  Icons.lock_person_outlined,
+                  'Zero 3rd-Party App Access (UID Sandbox)',
+                  'Android assigns a unique Linux User ID (UID) exclusively to this app. All session tokens, cookies, and chat data are stored in private storage (0700 permissions). No external app installed on your phone can inspect or extract your data.',
+                ),
+                _buildPolicyItem(
+                  Icons.dns_outlined,
+                  'Direct Google Connection (No Middleman)',
+                  'Network connections travel directly and securely to official Google endpoints (messages.google.com). There are zero intermediate relay, proxy, or third-party servers.',
+                ),
+                _buildPolicyItem(
+                  Icons.phonelink_lock_outlined,
+                  'Multi-Profile WebKit Isolation',
+                  'Every paired SIM/account runs in its own distinct WebKit profile. Cookies, caches, and databases for Account A cannot bleed into Account B, and all data is permanently purged on account deletion.',
+                ),
+                _buildPolicyItem(
+                  Icons.shield_moon_outlined,
+                  'Anti-Extraction & Network Hardening',
+                  'USB ADB backups and cloud cloning are explicitly disabled (android:allowBackup="false"). Plaintext HTTP is blocked (android:usesCleartextTraffic="false"), and external links are safely routed outside the sandbox.',
+                ),
+                _buildPolicyItem(
+                  Icons.fingerprint,
+                  'Hardware-Backed PIN & Biometrics',
+                  'Chats are safeguarded behind Android\'s hardware BiometricPrompt (Fingerprint / Face Unlock) and a 4-digit Master PIN with customizable auto-lock timeouts.',
+                ),
+                const SizedBox(height: 8),
+                const Center(
+                  child: Text(
+                    'Developer: MajorThug • Built for Android 8.0+',
+                    style: TextStyle(color: Colors.white38, fontSize: 11),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Close', style: TextStyle(color: googleBlue)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildPolicyItem(IconData icon, String title, String description) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 14.0),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Icon(icon, size: 20, color: const Color(0xFF8AB4F8)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontWeight: FontWeight.w600,
+                    fontSize: 13,
+                  ),
+                ),
+                const SizedBox(height: 3),
+                Text(
+                  description,
+                  style: const TextStyle(
+                    color: Colors.white60,
+                    fontSize: 11.5,
+                    height: 1.35,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildAboutInfoItem(IconData icon, String title, String subtitle) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 10.0),
@@ -852,6 +982,30 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           setSheetState(() {
                             isBatteryIgnored = updated;
                           });
+                        },
+                      ),
+                      const Divider(
+                          height: 1, indent: 54, color: Color(0xFF383A40)),
+                      ListTile(
+                        leading: const Icon(Icons.privacy_tip_outlined,
+                            color: Color(0xFF8AB4F8)),
+                        title: const Text(
+                          'Security & Privacy Policy',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: const Text(
+                          'Zero 3rd-party access • No telemetry • UID sandboxing',
+                          style: TextStyle(color: Colors.white54, fontSize: 12),
+                        ),
+                        trailing: const Icon(Icons.chevron_right,
+                            color: Colors.white38),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _showPrivacyPolicyDialog();
                         },
                       ),
                     ],
