@@ -39,6 +39,7 @@ dependencies:
   flutter_foreground_task: ^10.0.0
   uuid: ^4.6.0
   local_auth: ^3.0.2
+  crypto: ^3.0.8
 
 dev_dependencies:
   flutter_test:

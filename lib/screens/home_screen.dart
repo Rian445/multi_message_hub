@@ -107,17 +107,31 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
     // Load saved instances
     final loaded = await _storageService.loadInstances();
+    final defaultUuid = await _storageService.getDefaultProfileUuid();
 
     // Check if App Lock is enabled
     final isLockEnabled = await _securityService.isLockEnabled();
+
+    int startIdx = 0;
+    if (defaultUuid != null) {
+      final defIdx = loaded.indexWhere((p) => p.uuid == defaultUuid);
+      if (defIdx != -1) {
+        startIdx = defIdx;
+      }
+    } else if (loaded.isNotEmpty) {
+      final firstVisible = loaded.indexWhere((p) => !p.isHidden);
+      if (firstVisible != -1) {
+        startIdx = firstVisible;
+      }
+    }
 
     setState(() {
       _instances = loaded;
       _isMultiProfileSupported = supported;
       _isLoading = false;
       _isLocked = isLockEnabled;
-      if (_instances.isNotEmpty && _currentIndex >= _instances.length) {
-        _currentIndex = 0;
+      if (_instances.isNotEmpty) {
+        _currentIndex = startIdx;
       }
     });
 
@@ -222,11 +236,13 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
 
   Future<void> _addNewInstance(String customName) async {
     final newUuid = 'profile_${_uuidGenerator.v4().replaceAll('-', '')}';
+    final isFirst = _instances.isEmpty;
     final newInstance = ProfileInstance(
       uuid: newUuid,
       customName: customName.trim().isEmpty ? 'Secondary SIM' : customName.trim(),
       createdAt: DateTime.now(),
       mobileMode: true,
+      isDefault: isFirst,
     );
 
     setState(() {
@@ -234,6 +250,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       _currentIndex = _instances.length - 1;
     });
 
+    if (isFirst) {
+      await _storageService.setDefaultProfileUuid(newUuid);
+    }
     await _storageService.saveInstances(_instances);
     await _foregroundManager.startService(_instances.length);
 
@@ -243,6 +262,85 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         title: 'Device Created',
         message: 'Profile "${newInstance.customName}" created. Ready to pair!',
       );
+    }
+  }
+
+  Future<void> _setDefaultProfile(int index) async {
+    final targetUuid = _instances[index].uuid;
+    final targetName = _instances[index].customName;
+    final isCurrentlyDefault = _instances[index].isDefault;
+
+    setState(() {
+      _instances = _instances.map((p) {
+        if (p.uuid == targetUuid) {
+          return p.copyWith(isDefault: !isCurrentlyDefault);
+        } else {
+          return p.copyWith(isDefault: false);
+        }
+      }).toList();
+    });
+
+    if (!isCurrentlyDefault) {
+      await _storageService.setDefaultProfileUuid(targetUuid);
+      await _storageService.saveInstances(_instances);
+      if (mounted) {
+        StatusFeedbackDialog.showSuccess(
+          context,
+          title: 'Default Device Set',
+          message: '"$targetName" is now your default device and will open automatically on app launch.',
+        );
+      }
+    } else {
+      await _storageService.setDefaultProfileUuid(null);
+      await _storageService.saveInstances(_instances);
+      if (mounted) {
+        StatusFeedbackDialog.showInfo(
+          context,
+          title: 'Default Cleared',
+          message: '"$targetName" is no longer the default device.',
+        );
+      }
+    }
+  }
+
+  Future<void> _toggleHideProfile(int index) async {
+    final targetUuid = _instances[index].uuid;
+    final targetName = _instances[index].customName;
+    final newHiddenState = !_instances[index].isHidden;
+
+    setState(() {
+      _instances = _instances.map((p) {
+        if (p.uuid == targetUuid) {
+          return p.copyWith(isHidden: newHiddenState);
+        }
+        return p;
+      }).toList();
+
+      // If we just hid the currently active device, switch to another visible one if possible
+      if (newHiddenState && _currentIndex == index) {
+        final nextVisible = _instances.indexWhere((p) => !p.isHidden);
+        if (nextVisible != -1) {
+          _currentIndex = nextVisible;
+        }
+      }
+    });
+
+    await _storageService.saveInstances(_instances);
+
+    if (mounted) {
+      if (newHiddenState) {
+        StatusFeedbackDialog.showSuccess(
+          context,
+          title: 'Device Hidden',
+          message: '"$targetName" is now hidden from the main list. You can unhide it anytime.',
+        );
+      } else {
+        StatusFeedbackDialog.showSuccess(
+          context,
+          title: 'Device Unhidden',
+          message: '"$targetName" is now visible in the main device switcher.',
+        );
+      }
     }
   }
 
@@ -303,6 +401,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         }
       });
 
+      if (target.isDefault) {
+        await _storageService.setDefaultProfileUuid(null);
+      }
       await _storageService.saveInstances(_instances);
 
       if (_instances.isNotEmpty) {
@@ -675,8 +776,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
                 _buildPolicyItem(
                   Icons.fingerprint,
-                  'Hardware-Backed PIN & Biometrics',
-                  'Chats are safeguarded behind Android\'s hardware BiometricPrompt (Fingerprint / Face Unlock) and a 4-digit Master PIN with customizable auto-lock timeouts.',
+                  'Cryptographic PIN Hashing & Biometrics',
+                  'Chats are safeguarded behind Android\'s hardware BiometricPrompt (Fingerprint / Face Unlock) and a 4-digit Master PIN protected with salted SHA-256 key stretching and progressive brute-force rate-limiting lockout.',
                 ),
                 const SizedBox(height: 8),
                 const Center(
@@ -768,6 +869,282 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  void _showDefaultDevicePicker() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1F22),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (pickerCtx, setPickerState) {
+          final defaultIndex = _instances.indexWhere((p) => p.isDefault);
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: const [
+                      Icon(Icons.star, color: Colors.amber, size: 22),
+                      SizedBox(width: 8),
+                      Text(
+                        'Select Default Device',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                          fontSize: 18,
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'The default device opens automatically every time you launch Multi-Message Hub.',
+                    style: TextStyle(color: Colors.white60, fontSize: 12),
+                  ),
+                  const SizedBox(height: 16),
+                  Flexible(
+                    child: ListView(
+                      shrinkWrap: true,
+                      children: [
+                        ListTile(
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(10)),
+                          tileColor: defaultIndex == -1
+                              ? const Color(0xFF282A2E)
+                              : Colors.transparent,
+                          leading: Icon(
+                            defaultIndex == -1
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_off,
+                            color: defaultIndex == -1
+                                ? const Color(0xFF8AB4F8)
+                                : Colors.white38,
+                          ),
+                          title: const Text('None (Open first active device)',
+                              style:
+                                  TextStyle(color: Colors.white, fontSize: 14)),
+                          onTap: () async {
+                            Navigator.pop(ctx);
+                            await _storageService.setDefaultProfileUuid(null);
+                            setState(() {
+                              _instances = _instances
+                                  .map((p) => p.copyWith(isDefault: false))
+                                  .toList();
+                            });
+                            await _storageService.saveInstances(_instances);
+                            if (mounted) {
+                              StatusFeedbackDialog.showInfo(
+                                context,
+                                title: 'Default Cleared',
+                                message:
+                                    'App will open the first active device.',
+                              );
+                            }
+                          },
+                        ),
+                        const Divider(color: Color(0xFF383A40), height: 16),
+                        ..._instances.asMap().entries.map((entry) {
+                          final idx = entry.key;
+                          final inst = entry.value;
+                          final isDef = inst.isDefault;
+                          return ListTile(
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(10)),
+                            tileColor: isDef
+                                ? Colors.amber.withValues(alpha: 0.12)
+                                : Colors.transparent,
+                            leading: Icon(
+                              isDef ? Icons.star : Icons.phone_android,
+                              color: isDef ? Colors.amber : Colors.white70,
+                            ),
+                            title: Row(
+                              children: [
+                                Flexible(
+                                  child: Text(
+                                    inst.customName,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      color:
+                                          isDef ? Colors.amber : Colors.white,
+                                      fontWeight: isDef
+                                          ? FontWeight.bold
+                                          : FontWeight.normal,
+                                      fontSize: 14,
+                                    ),
+                                  ),
+                                ),
+                                if (inst.isHidden) ...[
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white10,
+                                      borderRadius: BorderRadius.circular(3),
+                                    ),
+                                    child: const Text('Hidden',
+                                        style: TextStyle(
+                                            color: Colors.white38,
+                                            fontSize: 9)),
+                                  ),
+                                ],
+                              ],
+                            ),
+                            trailing: isDef
+                                ? const Icon(Icons.check_circle,
+                                    color: Colors.amber, size: 20)
+                                : null,
+                            onTap: () async {
+                              Navigator.pop(ctx);
+                              await _setDefaultProfile(idx);
+                            },
+                          );
+                        }),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
+  void _showManageHiddenDevicesSheet() {
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: const Color(0xFF1E1F22),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (sheetCtx, setSheetState) {
+          final hiddenEntries = _instances
+              .asMap()
+              .entries
+              .where((e) => e.value.isHidden)
+              .toList();
+
+          return SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: const [
+                          Icon(Icons.visibility_off_outlined,
+                              color: Color(0xFF8AB4F8), size: 22),
+                          SizedBox(width: 8),
+                          Text(
+                            'Hidden Devices',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.bold,
+                              fontSize: 18,
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (hiddenEntries.length > 1)
+                        TextButton(
+                          onPressed: () async {
+                            Navigator.pop(ctx);
+                            setState(() {
+                              _instances = _instances
+                                  .map((p) => p.copyWith(isHidden: false))
+                                  .toList();
+                            });
+                            await _storageService.saveInstances(_instances);
+                            if (mounted) {
+                              StatusFeedbackDialog.showSuccess(
+                                context,
+                                title: 'All Devices Unhidden',
+                                message:
+                                    'All devices are now visible in the main switcher.',
+                              );
+                            }
+                          },
+                          child: const Text('Unhide All',
+                              style: TextStyle(color: Color(0xFF8AB4F8))),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  const Text(
+                    'Hidden devices stay logged in and active in the background. Tap Unhide to restore them to the main list.',
+                    style: TextStyle(color: Colors.white60, fontSize: 12),
+                  ),
+                  const SizedBox(height: 16),
+                  if (hiddenEntries.isEmpty)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24.0),
+                      child: Center(
+                        child: Text(
+                          'No hidden devices.',
+                          style: TextStyle(color: Colors.white38),
+                        ),
+                      ),
+                    )
+                  else
+                    Flexible(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: hiddenEntries.length,
+                        separatorBuilder: (_, unused) => const Divider(
+                            color: Color(0xFF383A40), height: 1),
+                        itemBuilder: (itemCtx, i) {
+                          final idx = hiddenEntries[i].key;
+                          final inst = hiddenEntries[i].value;
+
+                          return ListTile(
+                            leading: const Icon(Icons.phone_android,
+                                color: Colors.white38),
+                            title: Text(
+                              inst.customName,
+                              style: const TextStyle(
+                                  color: Colors.white, fontSize: 14),
+                            ),
+                            trailing: ElevatedButton.icon(
+                              style: ElevatedButton.styleFrom(
+                                backgroundColor: const Color(0xFF8AB4F8),
+                                foregroundColor: const Color(0xFF131314),
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 12, vertical: 6),
+                              ),
+                              icon: const Icon(Icons.visibility, size: 16),
+                              label: const Text('Unhide',
+                                  style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.bold)),
+                              onPressed: () async {
+                                Navigator.pop(ctx);
+                                await _toggleHideProfile(idx);
+                              },
+                            ),
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+
   void _showSettingsScreen() async {
     const googleBlue = Color(0xFF8AB4F8);
     bool isSyncEnabled = await _storageService.isBackgroundSyncEnabled();
@@ -775,6 +1152,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     int lockTimeout = await _securityService.getLockTimeoutSeconds();
     bool isBatteryIgnored =
         await ProfileManagerChannel.isBatteryOptimizationIgnored();
+
+    final defaultProfile =
+        _instances.where((p) => p.isDefault).firstOrNull;
+    final hiddenCount = _instances.where((p) => p.isHidden).length;
 
     if (!mounted) return;
 
@@ -831,6 +1212,82 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ],
                 ),
                 const SizedBox(height: 16),
+
+                // SECTION: DEVICE CONFIGURATION
+                const Text(
+                  'DEVICE PREFERENCES',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF282A2E),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading:
+                            const Icon(Icons.star_outline, color: Colors.amber),
+                        title: const Text(
+                          'Default Device on Launch',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: Text(
+                          defaultProfile != null
+                              ? '${defaultProfile.customName} (Opens automatically on launch)'
+                              : 'None (Opens first active device)',
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 12),
+                        ),
+                        trailing: const Icon(Icons.chevron_right,
+                            color: Colors.white38),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _showDefaultDevicePicker();
+                        },
+                      ),
+                      if (hiddenCount > 0) ...[
+                        const Divider(
+                            height: 1, indent: 54, color: Color(0xFF383A40)),
+                        ListTile(
+                          leading: const Icon(Icons.visibility_off_outlined,
+                              color: Color(0xFF8AB4F8)),
+                          title: const Text(
+                            'Hidden Devices',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                              fontSize: 14,
+                            ),
+                          ),
+                          subtitle: Text(
+                            '$hiddenCount ${hiddenCount == 1 ? "device" : "devices"} hidden • Tap to view or unhide',
+                            style: const TextStyle(
+                                color: Colors.white54, fontSize: 12),
+                          ),
+                          trailing: const Icon(Icons.chevron_right,
+                              color: Colors.white38),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _showManageHiddenDevicesSheet();
+                          },
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 24),
 
                 // SECTION: NOTIFICATIONS & BACKGROUND
                 const Text(
@@ -1495,6 +1952,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           ),
                         ),
                       ),
+                      if (activeInstance.isDefault) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: Colors.amber.withValues(alpha: 0.2),
+                            borderRadius: BorderRadius.circular(4),
+                            border: Border.all(
+                                color: Colors.amber.withValues(alpha: 0.5),
+                                width: 0.5),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(Icons.star, color: Colors.amber, size: 11),
+                              SizedBox(width: 3),
+                              Text('Default',
+                                  style: TextStyle(
+                                      color: Colors.amber,
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold)),
+                            ],
+                          ),
+                        ),
+                      ],
+                      if (activeInstance.isHidden) ...[
+                        const SizedBox(width: 6),
+                        Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 5, vertical: 1.5),
+                          decoration: BoxDecoration(
+                            color: Colors.white12,
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Text('Hidden',
+                              style: TextStyle(
+                                  color: Colors.white54, fontSize: 10)),
+                        ),
+                      ],
                       const SizedBox(width: 6),
                       const Icon(Icons.edit, size: 16, color: Colors.white60),
                     ],
@@ -1523,6 +2020,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             icon: const Icon(Icons.more_vert, color: Colors.white),
             onSelected: (val) {
               switch (val) {
+                case 'toggle_default':
+                  _setDefaultProfile(_currentIndex);
+                  break;
+                case 'toggle_hide':
+                  _toggleHideProfile(_currentIndex);
+                  break;
                 case 'toggle_view':
                   if (activeInstance != null) {
                     final newMode = !activeInstance.mobileMode;
@@ -1554,6 +2057,46 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             },
             itemBuilder: (ctx) => [
               if (activeInstance != null) ...[
+                PopupMenuItem(
+                  value: 'toggle_default',
+                  child: Row(
+                    children: [
+                      Icon(
+                        activeInstance.isDefault
+                            ? Icons.star
+                            : Icons.star_outline,
+                        color: Colors.amber,
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        activeInstance.isDefault
+                            ? 'Remove Default'
+                            : 'Set as Default Device',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
+                PopupMenuItem(
+                  value: 'toggle_hide',
+                  child: Row(
+                    children: [
+                      Icon(
+                        activeInstance.isHidden
+                            ? Icons.visibility_outlined
+                            : Icons.visibility_off_outlined,
+                        color: const Color(0xFF8AB4F8),
+                      ),
+                      const SizedBox(width: 10),
+                      Text(
+                        activeInstance.isHidden
+                            ? 'Unhide Device'
+                            : 'Hide Device',
+                        style: const TextStyle(color: Colors.white),
+                      ),
+                    ],
+                  ),
+                ),
                 PopupMenuItem(
                   value: 'toggle_view',
                   child: Row(
@@ -1668,6 +2211,17 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     const darkBackground = Color(0xFF131314);
     const googleBlue = Color(0xFF8AB4F8);
 
+    final visibleEntries = _instances
+        .asMap()
+        .entries
+        .where((e) => !e.value.isHidden)
+        .toList();
+    final hiddenEntries = _instances
+        .asMap()
+        .entries
+        .where((e) => e.value.isHidden)
+        .toList();
+
     return Drawer(
       backgroundColor: darkSurface,
       child: Column(
@@ -1756,11 +2310,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             child: ListView(
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 12),
               children: [
-                const Padding(
-                  padding: EdgeInsets.only(left: 10, bottom: 8),
+                Padding(
+                  padding: const EdgeInsets.only(left: 10, bottom: 8),
                   child: Text(
-                    'SWITCH DEVICE',
-                    style: TextStyle(
+                    'PAIRED DEVICES (${visibleEntries.length})',
+                    style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
                       letterSpacing: 0.8,
@@ -1777,8 +2331,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       style: TextStyle(color: Colors.white54, fontSize: 13),
                     ),
                   )
+                else if (visibleEntries.isEmpty)
+                  const Padding(
+                    padding: EdgeInsets.all(16.0),
+                    child: Text(
+                      'All devices are currently hidden. Expand "Hidden Devices" below to view or unhide.',
+                      style: TextStyle(color: Colors.white54, fontSize: 13),
+                    ),
+                  )
                 else
-                  ..._instances.asMap().entries.map((entry) {
+                  ...visibleEntries.map((entry) {
                     final index = entry.key;
                     final instance = entry.value;
                     final isSelected = index == _currentIndex;
@@ -1791,7 +2353,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             : Colors.transparent,
                         borderRadius: BorderRadius.circular(12),
                         border: isSelected
-                            ? Border.all(color: googleBlue.withValues(alpha: 0.35))
+                            ? Border.all(
+                                color: googleBlue.withValues(alpha: 0.35))
                             : null,
                       ),
                       child: ListTile(
@@ -1802,12 +2365,52 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           Icons.phone_android,
                           color: isSelected ? googleBlue : Colors.white70,
                         ),
-                        title: Text(
-                          instance.customName,
-                          style: TextStyle(
-                            fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
-                            color: isSelected ? googleBlue : Colors.white,
-                          ),
+                        title: Row(
+                          children: [
+                            Flexible(
+                              child: Text(
+                                instance.customName,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontWeight: isSelected
+                                      ? FontWeight.bold
+                                      : FontWeight.normal,
+                                  color: isSelected ? googleBlue : Colors.white,
+                                ),
+                              ),
+                            ),
+                            if (instance.isDefault) ...[
+                              const SizedBox(width: 6),
+                              Container(
+                                padding: const EdgeInsets.symmetric(
+                                    horizontal: 5, vertical: 1),
+                                decoration: BoxDecoration(
+                                  color: Colors.amber.withValues(alpha: 0.2),
+                                  borderRadius: BorderRadius.circular(4),
+                                  border: Border.all(
+                                      color:
+                                          Colors.amber.withValues(alpha: 0.5),
+                                      width: 0.5),
+                                ),
+                                child: const Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    Icon(Icons.star,
+                                        color: Colors.amber, size: 10),
+                                    SizedBox(width: 2),
+                                    Text(
+                                      'Default',
+                                      style: TextStyle(
+                                        color: Colors.amber,
+                                        fontSize: 9.5,
+                                        fontWeight: FontWeight.bold,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ],
                         ),
                         trailing: Row(
                           mainAxisSize: MainAxisSize.min,
@@ -1833,23 +2436,58 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                 ),
                               ),
                             PopupMenuButton<String>(
-                              icon: const Icon(Icons.more_vert, size: 18, color: Colors.white54),
+                              icon: const Icon(Icons.more_vert,
+                                  size: 18, color: Colors.white54),
                               onSelected: (val) {
                                 Navigator.pop(context);
-                                if (val == 'rename') {
+                                if (val == 'default') {
+                                  _setDefaultProfile(index);
+                                } else if (val == 'hide') {
+                                  _toggleHideProfile(index);
+                                } else if (val == 'rename') {
                                   _showRenameDialog(index);
                                 } else if (val == 'reload') {
                                   _controllers[instance.uuid]?.reload();
                                   StatusFeedbackDialog.showInfo(
                                     context,
                                     title: 'Reloading',
-                                    message: 'Refreshing "${instance.customName}"...',
+                                    message:
+                                        'Refreshing "${instance.customName}"...',
                                   );
                                 } else if (val == 'delete') {
                                   _deleteInstance(index);
                                 }
                               },
                               itemBuilder: (ctx) => [
+                                PopupMenuItem(
+                                  value: 'default',
+                                  child: Row(
+                                    children: [
+                                      Icon(
+                                        instance.isDefault
+                                            ? Icons.star
+                                            : Icons.star_outline,
+                                        size: 18,
+                                        color: Colors.amber,
+                                      ),
+                                      const SizedBox(width: 8),
+                                      Text(instance.isDefault
+                                          ? 'Remove Default'
+                                          : 'Set as Default'),
+                                    ],
+                                  ),
+                                ),
+                                const PopupMenuItem(
+                                  value: 'hide',
+                                  child: Row(
+                                    children: [
+                                      Icon(Icons.visibility_off_outlined,
+                                          size: 18, color: Colors.white70),
+                                      SizedBox(width: 8),
+                                      Text('Hide Device'),
+                                    ],
+                                  ),
+                                ),
                                 const PopupMenuItem(
                                   value: 'rename',
                                   child: Row(
@@ -1874,9 +2512,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   value: 'delete',
                                   child: Row(
                                     children: [
-                                      Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                                      Icon(Icons.delete_outline,
+                                          size: 18, color: Colors.red),
                                       SizedBox(width: 8),
-                                      Text('Delete Profile', style: TextStyle(color: Colors.red)),
+                                      Text('Delete Profile',
+                                          style: TextStyle(color: Colors.red)),
                                     ],
                                   ),
                                 ),
@@ -1887,7 +2527,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         onTap: () {
                           setState(() {
                             _currentIndex = index;
-                            _instances[index] = _instances[index].copyWith(unreadCount: 0);
+                            _instances[index] =
+                                _instances[index].copyWith(unreadCount: 0);
                           });
                           _storageService.saveInstances(_instances);
                           Navigator.pop(context);
@@ -1895,6 +2536,192 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                     );
                   }),
+
+                if (hiddenEntries.isNotEmpty) ...[
+                  const SizedBox(height: 12),
+                  Container(
+                    decoration: BoxDecoration(
+                      color: Colors.white.withValues(alpha: 0.03),
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: Colors.white10),
+                    ),
+                    child: Theme(
+                      data: Theme.of(context)
+                          .copyWith(dividerColor: Colors.transparent),
+                      child: ExpansionTile(
+                        initiallyExpanded: false,
+                        tilePadding: const EdgeInsets.symmetric(
+                            horizontal: 12, vertical: 0),
+                        leading: const Icon(Icons.visibility_off_outlined,
+                            color: Colors.white54, size: 20),
+                        title: Text(
+                          'HIDDEN DEVICES (${hiddenEntries.length})',
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                            letterSpacing: 0.8,
+                            color: Colors.white54,
+                          ),
+                        ),
+                        children: hiddenEntries.map((entry) {
+                          final index = entry.key;
+                          final instance = entry.value;
+                          final isSelected = index == _currentIndex;
+
+                          return Container(
+                            margin: const EdgeInsets.only(
+                                left: 8, right: 8, bottom: 4),
+                            decoration: BoxDecoration(
+                              color: isSelected
+                                  ? googleBlue.withValues(alpha: 0.12)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(10),
+                            ),
+                            child: ListTile(
+                              dense: true,
+                              shape: RoundedRectangleBorder(
+                                  borderRadius: BorderRadius.circular(10)),
+                              leading: Icon(
+                                Icons.phone_android,
+                                color:
+                                    isSelected ? googleBlue : Colors.white38,
+                                size: 20,
+                              ),
+                              title: Row(
+                                children: [
+                                  Flexible(
+                                    child: Text(
+                                      instance.customName,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: TextStyle(
+                                        color: isSelected
+                                            ? googleBlue
+                                            : Colors.white60,
+                                        fontSize: 13,
+                                      ),
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  Container(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 4, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: Colors.white10,
+                                      borderRadius: BorderRadius.circular(3),
+                                    ),
+                                    child: const Text('Hidden',
+                                        style: TextStyle(
+                                            color: Colors.white38,
+                                            fontSize: 9)),
+                                  ),
+                                  if (instance.isDefault) ...[
+                                    const SizedBox(width: 4),
+                                    const Icon(Icons.star,
+                                        color: Colors.amber, size: 12),
+                                  ],
+                                ],
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    icon: const Icon(Icons.visibility_outlined,
+                                        size: 18, color: googleBlue),
+                                    tooltip: 'Unhide Device',
+                                    onPressed: () {
+                                      _toggleHideProfile(index);
+                                    },
+                                  ),
+                                  PopupMenuButton<String>(
+                                    icon: const Icon(Icons.more_vert,
+                                        size: 16, color: Colors.white38),
+                                    onSelected: (val) {
+                                      Navigator.pop(context);
+                                      if (val == 'unhide') {
+                                        _toggleHideProfile(index);
+                                      } else if (val == 'default') {
+                                        _setDefaultProfile(index);
+                                      } else if (val == 'rename') {
+                                        _showRenameDialog(index);
+                                      } else if (val == 'reload') {
+                                        _controllers[instance.uuid]?.reload();
+                                      } else if (val == 'delete') {
+                                        _deleteInstance(index);
+                                      }
+                                    },
+                                    itemBuilder: (ctx) => [
+                                      const PopupMenuItem(
+                                        value: 'unhide',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.visibility_outlined,
+                                                size: 18, color: googleBlue),
+                                            SizedBox(width: 8),
+                                            Text('Unhide Device'),
+                                          ],
+                                        ),
+                                      ),
+                                      PopupMenuItem(
+                                        value: 'default',
+                                        child: Row(
+                                          children: [
+                                            Icon(
+                                              instance.isDefault
+                                                  ? Icons.star
+                                                  : Icons.star_outline,
+                                              size: 18,
+                                              color: Colors.amber,
+                                            ),
+                                            const SizedBox(width: 8),
+                                            Text(instance.isDefault
+                                                ? 'Remove Default'
+                                                : 'Set as Default'),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'rename',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.edit, size: 18),
+                                            SizedBox(width: 8),
+                                            Text('Rename'),
+                                          ],
+                                        ),
+                                      ),
+                                      const PopupMenuItem(
+                                        value: 'delete',
+                                        child: Row(
+                                          children: [
+                                            Icon(Icons.delete_outline,
+                                                size: 18, color: Colors.red),
+                                            SizedBox(width: 8),
+                                            Text('Delete Profile',
+                                                style: TextStyle(
+                                                    color: Colors.red)),
+                                          ],
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                              ),
+                              onTap: () {
+                                setState(() {
+                                  _currentIndex = index;
+                                  _instances[index] = _instances[index]
+                                      .copyWith(unreadCount: 0);
+                                });
+                                _storageService.saveInstances(_instances);
+                                Navigator.pop(context);
+                              },
+                            ),
+                          );
+                        }).toList(),
+                      ),
+                    ),
+                  ),
+                ],
 
                 const SizedBox(height: 10),
 

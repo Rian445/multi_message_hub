@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<network-security-config>
+    <!-- Strictly disallow all cleartext HTTP traffic across the entire application -->
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <!-- Only trust pre-installed system Certificate Authorities (blocks user-installed MITM certs) -->
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+
+    <!-- Specific domain rules for Google Messages and Google Authentication -->
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="true">messages.google.com</domain>
+        <domain includeSubdomains="true">accounts.google.com</domain>
+        <domain includeSubdomains="true">google.com</domain>
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </domain-config>
+</network-security-config>

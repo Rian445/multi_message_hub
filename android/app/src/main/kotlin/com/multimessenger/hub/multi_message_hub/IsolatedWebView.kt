@@ -5,9 +5,12 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
+import android.net.http.SslError
 import android.os.Build
 import android.view.View
 import android.webkit.JavascriptInterface
+import android.webkit.PermissionRequest
+import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebSettings
@@ -296,13 +299,31 @@ class IsolatedWebView(
         webView.resumeTimers()
 
         webView.webChromeClient = object : WebChromeClient() {
-            override fun onPermissionRequest(request: android.webkit.PermissionRequest?) {
-                // Auto-grant permissions requested by Google Messages (e.g. notifications)
-                request?.grant(request.resources)
+            override fun onPermissionRequest(request: PermissionRequest?) {
+                if (request == null) return
+                // Whitelist only safe resources: audio capture for voice messages
+                // Deny video capture, midi, and protected media id
+                val requested = request.resources
+                val granted = mutableListOf<String>()
+                for (res in requested) {
+                    if (res == PermissionRequest.RESOURCE_AUDIO_CAPTURE) {
+                        granted.add(res)
+                    }
+                }
+                if (granted.isNotEmpty()) {
+                    request.grant(granted.toTypedArray())
+                } else {
+                    request.deny()
+                }
             }
         }
 
         webView.webViewClient = object : WebViewClient() {
+            override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
+                // Strictly deny SSL/TLS errors to protect against MITM attacks
+                handler?.cancel()
+            }
+
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                 val uri = request?.url ?: return false
                 return handleNavigation(view, uri)
@@ -337,16 +358,30 @@ class IsolatedWebView(
         } catch (e: Exception) {
             return false
         }
+        val scheme = uri.scheme?.lowercase() ?: return false
+        if (scheme != "https") {
+            return false // Strictly require HTTPS (block http:, file:, javascript:, content:)
+        }
         val host = uri.host?.lowercase() ?: return false
+
+        // Disallow domains that host arbitrary user-created files/content
+        if (host.endsWith(".googleusercontent.com") ||
+            host == "sites.google.com" ||
+            host == "docs.google.com" ||
+            host == "drive.google.com" ||
+            host == "forms.google.com" ||
+            host == "script.google.com") {
+            return false
+        }
 
         // Allowed domains for Google Messages & Google Account Authentication
         return host == "messages.google.com" ||
                host == "accounts.google.com" ||
                host == "myaccount.google.com" ||
-               host.endsWith(".google.com") ||
-               host.endsWith(".google") ||
-               host.endsWith(".gstatic.com") ||
-               host.endsWith(".googleusercontent.com")
+               host == "apis.google.com" ||
+               host == "ssl.gstatic.com" ||
+               host == "www.gstatic.com" ||
+               (host.endsWith(".google.com") && !host.contains("usercontent"))
     }
 
     private fun handleNavigation(view: WebView?, uri: Uri): Boolean {
@@ -435,13 +470,11 @@ class IsolatedWebView(
             }
             "loadUrl" -> {
                 val url = call.argument<String>("url") ?: "https://messages.google.com/web"
-                webView.loadUrl(url)
-                result.success(null)
-            }
-            "evaluateJavascript" -> {
-                val script = call.argument<String>("script") ?: ""
-                webView.evaluateJavascript(script) { value ->
-                    result.success(value)
+                if (isAllowedDomain(url)) {
+                    webView.loadUrl(url)
+                    result.success(null)
+                } else {
+                    result.error("BLOCKED_URL", "Navigation to unauthorized domain blocked: $url", null)
                 }
             }
             "setMobileMode" -> {

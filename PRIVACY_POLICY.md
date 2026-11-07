@@ -40,21 +40,27 @@ Multi-Message Hub uses native AndroidX WebKit multi-profile architecture (`andro
 
 ---
 
-## 4. Network Security & Domain Pinning
+## 4. Network Security & Domain Hardening
 * **Enforced TLS/HTTPS (`android:usesCleartextTraffic="false"`)**:
   All network traffic is encrypted using standard TLS. Plaintext HTTP connections are unconditionally blocked at the OS network stack.
-* **Strict Domain Pinning**:
-  The embedded WebKit engine is restricted to official Google domains (`messages.google.com`, `accounts.google.com`, `*.google.com`, `*.gstatic.com`).
+* **OS-Level Network Security Config**:
+  Configured via `@xml/network_security_config` to strictly trust only pre-installed system Certificate Authorities (CAs), blocking user-installed MITM proxy certificates from intercepting communications.
+* **Strict Domain Pinning & Anti-Exfiltration**:
+  The embedded WebKit engine is restricted to official Google communication endpoints (`messages.google.com`, `accounts.google.com`, `apis.google.com`, `ssl.gstatic.com`). User-content hosting domains (`*.googleusercontent.com`, `sites.google.com`, `docs.google.com`) are explicitly blocked to prevent cross-site scripting (XSS).
 * **Safe External Forwarding**:
   If a message contains an external hyperlink, the embedded engine refuses to load it internally and instead dispatches it safely to your device's external web browser, preventing arbitrary code or tracking scripts from entering the sandbox.
 
 ---
 
-## 5. Anti-Extraction & Hardware Protections
+## 5. Anti-Extraction & Cryptographic Protections
 * **Backup Extraction Disabled (`android:allowBackup="false"`)**:
   The app disables ADB USB backup dumps and cloud migration backups. Attackers cannot clone your pairing keys, active sessions, or message caches via USB or automated cloud backups.
-* **Hardware-Backed App Lock**:
-  The app features an integrated 4-digit master PIN and Biometric Authentication (Fingerprint & Face Unlock) backed by Android's hardware `BiometricPrompt`.
+* **Cryptographic PIN Key Stretching**:
+  The 4-digit Master PIN is protected using salted SHA-256 with 10,000 rounds of cryptographic key stretching and an entropy-generated 16-byte random salt. Raw PINs are never stored in plaintext on disk.
+* **Progressive Rate-Limiting & Lockout**:
+  To prevent brute-force attacks, the app enforces automated progressive lockout intervals (30 seconds at 5 failed attempts, 5 minutes at 10 failed attempts, and 15 minutes at 15 failed attempts) persisted across app launches.
+* **Hardware-Backed Biometric Authentication**:
+  Fingerprint and Face Unlock use Android's native hardware-backed `BiometricPrompt` and Android Keystore.
 * **Configurable Auto-Lock**:
   Users can configure the app to re-lock immediately upon backgrounding or after 1 or 5 minutes of inactivity.
 

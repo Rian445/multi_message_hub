@@ -6,6 +6,8 @@ class ProfileInstance {
   final int unreadCount;
   final DateTime createdAt;
   final bool mobileMode;
+  final bool isHidden;
+  final bool isDefault;
 
   ProfileInstance({
     required this.uuid,
@@ -13,6 +15,8 @@ class ProfileInstance {
     this.unreadCount = 0,
     required this.createdAt,
     this.mobileMode = true,
+    this.isHidden = false,
+    this.isDefault = false,
   });
 
   ProfileInstance copyWith({
@@ -21,6 +25,8 @@ class ProfileInstance {
     int? unreadCount,
     DateTime? createdAt,
     bool? mobileMode,
+    bool? isHidden,
+    bool? isDefault,
   }) {
     return ProfileInstance(
       uuid: uuid ?? this.uuid,
@@ -28,6 +34,8 @@ class ProfileInstance {
       unreadCount: unreadCount ?? this.unreadCount,
       createdAt: createdAt ?? this.createdAt,
       mobileMode: mobileMode ?? this.mobileMode,
+      isHidden: isHidden ?? this.isHidden,
+      isDefault: isDefault ?? this.isDefault,
     );
   }
 
@@ -38,6 +46,8 @@ class ProfileInstance {
       'unreadCount': unreadCount,
       'createdAt': createdAt.toIso8601String(),
       'mobileMode': mobileMode,
+      'isHidden': isHidden,
+      'isDefault': isDefault,
     };
   }
 
@@ -50,6 +60,8 @@ class ProfileInstance {
           ? DateTime.tryParse(map['createdAt'] as String) ?? DateTime.now()
           : DateTime.now(),
       mobileMode: map['mobileMode'] as bool? ?? true,
+      isHidden: map['isHidden'] as bool? ?? false,
+      isDefault: map['isDefault'] as bool? ?? false,
     );
   }
 
