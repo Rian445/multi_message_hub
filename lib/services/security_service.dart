@@ -6,8 +6,20 @@ class SecurityService {
   static const String _keyLockEnabled = 'sec_lock_enabled';
   static const String _keyPin = 'sec_pin_code';
   static const String _keyBiometrics = 'sec_biometrics_enabled';
+  static const String _keyTimeout = 'sec_lock_timeout_seconds';
 
   final LocalAuthentication _localAuth = LocalAuthentication();
+  bool isAuthenticating = false;
+
+  Future<int> getLockTimeoutSeconds() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getInt(_keyTimeout) ?? 0; // Default 0 = Immediate
+  }
+
+  Future<void> setLockTimeoutSeconds(int seconds) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_keyTimeout, seconds);
+  }
 
   Future<bool> isLockEnabled() async {
     final prefs = await SharedPreferences.getInstance();
@@ -60,18 +72,25 @@ class SecurityService {
   }
 
   Future<bool> authenticateBiometrics() async {
+    if (isAuthenticating) return false;
+    isAuthenticating = true;
     try {
       final canAuth = await canCheckBiometrics();
       if (!canAuth) return false;
 
-      return await _localAuth.authenticate(
+      final result = await _localAuth.authenticate(
         localizedReason: 'Authenticate to unlock Multi-Message Hub',
         biometricOnly: false,
       );
+      return result;
     } on PlatformException catch (_) {
       return false;
     } catch (_) {
       return false;
+    } finally {
+      Future.delayed(const Duration(milliseconds: 1500), () {
+        isAuthenticating = false;
+      });
     }
   }
 }

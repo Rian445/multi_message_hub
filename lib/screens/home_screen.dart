@@ -10,6 +10,7 @@ import '../services/profile_manager_channel.dart';
 import '../services/profile_storage_service.dart';
 import '../services/security_service.dart';
 import '../widgets/isolated_web_view_widget.dart';
+import '../widgets/status_feedback_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -32,6 +33,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   bool _isMultiProfileSupported = true;
   bool _isLocked = false;
   DateTime? _lastPausedTime;
+  DateTime? _lastUnlockedTime;
 
   final Map<String, IsolatedWebViewController> _controllers = {};
   StreamSubscription<String>? _notificationClickSub;
@@ -236,11 +238,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _foregroundManager.startService(_instances.length);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Created profile "${newInstance.customName}". Scan QR to pair!'),
-          duration: const Duration(seconds: 3),
-        ),
+      StatusFeedbackDialog.showSuccess(
+        context,
+        title: 'Device Created',
+        message: 'Profile "${newInstance.customName}" created. Ready to pair!',
       );
     }
   }
@@ -256,11 +257,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     await _storageService.saveInstances(_instances);
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Renamed to "$trimmed"'),
-          duration: const Duration(seconds: 2),
-        ),
+      StatusFeedbackDialog.showSuccess(
+        context,
+        title: 'Device Renamed',
+        message: 'Renamed to "$trimmed"',
       );
     }
   }
@@ -312,10 +312,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
 
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Profile "${target.customName}" deleted.'),
-          ),
+        StatusFeedbackDialog.showSuccess(
+          context,
+          title: 'Device Removed',
+          message: 'Profile "${target.customName}" was deleted.',
         );
       }
     }
@@ -642,6 +642,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     const googleBlue = Color(0xFF8AB4F8);
     bool isSyncEnabled = await _storageService.isBackgroundSyncEnabled();
     bool isLockEnabled = await _securityService.isLockEnabled();
+    int lockTimeout = await _securityService.getLockTimeoutSeconds();
     bool isBatteryIgnored =
         await ProfileManagerChannel.isBatteryOptimizationIgnored();
 
@@ -740,7 +741,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                     value: isSyncEnabled,
                     onChanged: (val) async {
-                      final messenger = ScaffoldMessenger.of(context);
                       await _storageService.setBackgroundSyncEnabled(val);
                       if (val) {
                         if (_instances.isNotEmpty) {
@@ -753,14 +753,22 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       setSheetState(() {
                         isSyncEnabled = val;
                       });
-                      messenger.showSnackBar(
-                        SnackBar(
-                          content: Text(val
-                              ? 'Persistent notification & background sync enabled'
-                              : 'Constant notification turned off'),
-                          duration: const Duration(seconds: 2),
-                        ),
-                      );
+                      if (ctx.mounted) {
+                        if (val) {
+                          StatusFeedbackDialog.showSuccess(
+                            ctx,
+                            title: 'Sync Active',
+                            message:
+                                'Persistent background notification enabled.',
+                          );
+                        } else {
+                          StatusFeedbackDialog.showInfo(
+                            ctx,
+                            title: 'Notification Hidden',
+                            message: 'Constant notification turned off.',
+                          );
+                        }
+                      }
                     },
                   ),
                 ),
@@ -798,7 +806,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                         ),
                         subtitle: Text(
                           isLockEnabled
-                              ? 'Protected with 4-Digit PIN & Biometrics'
+                              ? 'Protected • ${lockTimeout == 0 ? "Locks immediately" : "Locks after ${lockTimeout ~/ 60}m"}'
                               : 'Disabled (No PIN or Biometrics)',
                           style: const TextStyle(
                               color: Colors.white54, fontSize: 12),
@@ -905,6 +913,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     bool isLockEnabled = await _securityService.isLockEnabled();
     bool isBioEnabled = await _securityService.isBiometricsEnabled();
     bool canBio = await _securityService.canCheckBiometrics();
+    int currentTimeout = await _securityService.getLockTimeoutSeconds();
 
     if (!mounted) return;
 
@@ -944,16 +953,19 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     Navigator.pop(ctx);
                     _showSetPinDialog();
                   } else {
-                    final messenger = ScaffoldMessenger.of(context);
                     final confirmed = await _promptCurrentPin();
                     if (confirmed) {
                       await _securityService.disableLock();
                       setDialogState(() {
                         isLockEnabled = false;
                       });
-                      messenger.showSnackBar(
-                        const SnackBar(content: Text('App Lock has been disabled.')),
-                      );
+                      if (ctx.mounted) {
+                        StatusFeedbackDialog.showInfo(
+                          ctx,
+                          title: 'App Lock Disabled',
+                          message: 'Security PIN has been turned off.',
+                        );
+                      }
                     }
                   }
                 },
@@ -968,6 +980,48 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     Navigator.pop(ctx);
                     _showSetPinDialog();
                   },
+                ),
+                ListTile(
+                  contentPadding: EdgeInsets.zero,
+                  leading: const Icon(Icons.timer_outlined, color: googleBlue),
+                  title: const Text('Auto-Lock Timeout', style: TextStyle(color: Colors.white)),
+                  subtitle: Text(
+                    currentTimeout == 0
+                        ? 'Immediately when app is closed'
+                        : currentTimeout == 60
+                            ? 'After 1 minute in background'
+                            : 'After 5 minutes in background',
+                    style: const TextStyle(color: Colors.white54, fontSize: 12),
+                  ),
+                  trailing: DropdownButton<int>(
+                    value: currentTimeout,
+                    dropdownColor: const Color(0xFF2B2D31),
+                    underline: const SizedBox.shrink(),
+                    icon: const Icon(Icons.arrow_drop_down, color: googleBlue),
+                    style: const TextStyle(color: Colors.white, fontSize: 13),
+                    items: const [
+                      DropdownMenuItem(value: 0, child: Text('Immediately')),
+                      DropdownMenuItem(value: 60, child: Text('After 1 min')),
+                      DropdownMenuItem(value: 300, child: Text('After 5 min')),
+                    ],
+                    onChanged: (newVal) async {
+                      if (newVal != null) {
+                        await _securityService.setLockTimeoutSeconds(newVal);
+                        setDialogState(() {
+                          currentTimeout = newVal;
+                        });
+                        if (ctx.mounted) {
+                          StatusFeedbackDialog.showSuccess(
+                            ctx,
+                            title: 'Timeout Updated',
+                            message: newVal == 0
+                                ? 'App will lock immediately when closed.'
+                                : 'App will lock after ${newVal ~/ 60} minute(s).',
+                          );
+                        }
+                      }
+                    },
+                  ),
                 ),
                 if (canBio)
                   SwitchListTile(
@@ -1070,17 +1124,29 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 final confirm = confirmController.text.trim();
                 if (pin.length != 4) {
                   setDialogState(() => errorText = 'PIN must be exactly 4 digits');
+                  StatusFeedbackDialog.showError(
+                    ctx,
+                    title: 'Invalid PIN Length',
+                    message: 'PIN must be exactly 4 digits.',
+                  );
                   return;
                 }
                 if (pin != confirm) {
                   setDialogState(() => errorText = 'PINs do not match. Try again.');
+                  StatusFeedbackDialog.showError(
+                    ctx,
+                    title: 'PINs Do Not Match',
+                    message: 'Please re-enter the same 4-digit PIN.',
+                  );
                   return;
                 }
                 await _securityService.enableLock(pin);
                 if (context.mounted) {
                   Navigator.pop(ctx);
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('App Lock is now active!')),
+                  StatusFeedbackDialog.showSuccess(
+                    context,
+                    title: 'App Lock Active',
+                    message: '4-Digit PIN protection is set.',
                   );
                 }
               },
@@ -1139,9 +1205,16 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               onPressed: () async {
                 final isValid = await _securityService.verifyPin(pinController.text.trim());
                 if (isValid) {
-                  if (context.mounted) Navigator.pop(ctx, true);
+                  if (ctx.mounted) Navigator.pop(ctx, true);
                 } else {
                   setDialogState(() => errorText = 'Incorrect PIN');
+                  if (ctx.mounted) {
+                    StatusFeedbackDialog.showError(
+                      ctx,
+                      title: 'Incorrect PIN',
+                      message: 'The entered PIN does not match.',
+                    );
+                  }
                 }
               },
               child: const Text('Verify', style: TextStyle(color: Color(0xFF131314))),
@@ -1157,20 +1230,39 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.paused) {
-      _lastPausedTime = DateTime.now();
+      // Only record pause time if not currently showing the system biometric prompt
+      if (!_securityService.isAuthenticating) {
+        _lastPausedTime = DateTime.now();
+      }
     } else if (state == AppLifecycleState.resumed) {
       // Resume web timers
       for (final controller in _controllers.values) {
         controller.resume();
       }
 
-      if (_lastPausedTime != null &&
-          DateTime.now().difference(_lastPausedTime!).inSeconds >= 2) {
-        _securityService.isLockEnabled().then((enabled) {
-          if (enabled && mounted) {
-            setState(() {
-              _isLocked = true;
-            });
+      // If biometric prompt is showing or lock screen is already open, ignore
+      if (_securityService.isAuthenticating || _isLocked) {
+        return;
+      }
+
+      // If unlocked very recently (< 3 seconds ago), ignore
+      if (_lastUnlockedTime != null &&
+          DateTime.now().difference(_lastUnlockedTime!).inSeconds < 3) {
+        return;
+      }
+
+      if (_lastPausedTime != null) {
+        final elapsed = DateTime.now().difference(_lastPausedTime!).inSeconds;
+        _lastPausedTime = null; // Consume paused timestamp immediately
+
+        _securityService.getLockTimeoutSeconds().then((timeout) async {
+          if (elapsed >= timeout) {
+            final isEnabled = await _securityService.isLockEnabled();
+            if (isEnabled && mounted) {
+              setState(() {
+                _isLocked = true;
+              });
+            }
           }
         });
       }
@@ -1192,6 +1284,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
         onUnlocked: () {
           setState(() {
             _isLocked = false;
+            _lastUnlockedTime = DateTime.now();
+            _lastPausedTime = null;
           });
         },
       );
@@ -1264,11 +1358,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               icon: const Icon(Icons.refresh),
               onPressed: () {
                 activeController?.reload();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    content: Text('Reloading "${activeInstance.customName}"...'),
-                    duration: const Duration(seconds: 1),
-                  ),
+                StatusFeedbackDialog.showInfo(
+                  context,
+                  title: 'Reloading',
+                  message: 'Refreshing "${activeInstance.customName}"...',
                 );
               },
             ),
@@ -1285,13 +1378,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     });
                     _storageService.saveInstances(_instances);
                     activeController?.setMobileMode(newMode);
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(newMode
-                            ? 'Switched to Phone (Mobile) View'
-                            : 'Switched to Web (Desktop) View'),
-                        duration: const Duration(seconds: 1),
-                      ),
+                    StatusFeedbackDialog.showSuccess(
+                      context,
+                      title: newMode ? 'Phone View Active' : 'Web View Active',
+                      message: newMode
+                          ? 'Optimized for mobile screen fit.'
+                          : 'Desktop web layout enabled.',
                     );
                   }
                   break;
@@ -1594,6 +1686,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   _showRenameDialog(index);
                                 } else if (val == 'reload') {
                                   _controllers[instance.uuid]?.reload();
+                                  StatusFeedbackDialog.showInfo(
+                                    context,
+                                    title: 'Reloading',
+                                    message: 'Refreshing "${instance.customName}"...',
+                                  );
                                 } else if (val == 'delete') {
                                   _deleteInstance(index);
                                 }

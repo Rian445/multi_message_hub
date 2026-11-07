@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../services/security_service.dart';
+import '../widgets/status_feedback_dialog.dart';
 
 class LockScreen extends StatefulWidget {
   final VoidCallback onUnlocked;
@@ -19,6 +20,8 @@ class _LockScreenState extends State<LockScreen> {
   String _enteredPin = '';
   String? _errorMessage;
   bool _canUseBiometrics = false;
+  bool _hasPromptedBiometrics = false;
+  bool _isAuthenticatingNow = false;
 
   @override
   void initState() {
@@ -36,18 +39,32 @@ class _LockScreenState extends State<LockScreen> {
       });
     }
 
-    if (_canUseBiometrics) {
-      // Trigger biometrics automatically after screen finishes rendering
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        _triggerBiometrics();
+    if (_canUseBiometrics && !_hasPromptedBiometrics) {
+      _hasPromptedBiometrics = true;
+      // Slight delay so the view and activity are fully settled before invoking native prompt
+      Future.delayed(const Duration(milliseconds: 350), () {
+        if (mounted) {
+          _triggerBiometrics();
+        }
       });
     }
   }
 
   Future<void> _triggerBiometrics() async {
-    final success = await widget.securityService.authenticateBiometrics();
-    if (success && mounted) {
-      widget.onUnlocked();
+    if (_isAuthenticatingNow) return;
+    _isAuthenticatingNow = true;
+
+    try {
+      final success = await widget.securityService.authenticateBiometrics();
+      if (success && mounted) {
+        widget.onUnlocked();
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _isAuthenticatingNow = false;
+        });
+      }
     }
   }
 
@@ -71,6 +88,11 @@ class _LockScreenState extends State<LockScreen> {
             _errorMessage = 'Incorrect PIN. Try again.';
             _enteredPin = '';
           });
+          StatusFeedbackDialog.showError(
+            context,
+            title: 'Incorrect PIN',
+            message: 'The entered PIN is incorrect.',
+          );
         }
       }
     }
