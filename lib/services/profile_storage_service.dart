@@ -4,6 +4,28 @@ import '../models/profile_instance.dart';
 
 class ProfileStorageService {
   static const String _keyInstances = 'multi_message_hub_instances';
+  static const String _keyBatteryPromptShown = 'has_shown_battery_prompt';
+  static const String _keyBackgroundSync = 'pref_background_sync_enabled';
+
+  Future<bool> isBackgroundSyncEnabled() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyBackgroundSync) ?? true;
+  }
+
+  Future<void> setBackgroundSyncEnabled(bool enabled) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyBackgroundSync, enabled);
+  }
+
+  Future<bool> hasBatteryPromptBeenShown() async {
+    final prefs = await SharedPreferences.getInstance();
+    return prefs.getBool(_keyBatteryPromptShown) ?? false;
+  }
+
+  Future<void> setBatteryPromptShown() async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_keyBatteryPromptShown, true);
+  }
 
   Future<List<ProfileInstance>> loadInstances() async {
     final prefs = await SharedPreferences.getInstance();

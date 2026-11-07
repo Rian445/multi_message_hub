@@ -119,8 +119,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
       }
     });
 
-    // Start background foreground service if instances exist
-    if (_instances.isNotEmpty) {
+    // Start background foreground service if instances exist and sync is enabled
+    final isSyncEnabled = await _storageService.isBackgroundSyncEnabled();
+    if (_instances.isNotEmpty && isSyncEnabled) {
       await _foregroundManager.startService(_instances.length);
     }
 
@@ -129,6 +130,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _checkBatteryOptimization() async {
+    final alreadyPrompted = await _storageService.hasBatteryPromptBeenShown();
+    if (alreadyPrompted) return; // Only show once on first launch
+
     final isIgnored =
         await ProfileManagerChannel.isBatteryOptimizationIgnored();
     if (!isIgnored && mounted) {
@@ -137,30 +141,37 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   void _showBatteryOptimizationDialog() {
+    _storageService.setBatteryPromptShown();
+
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1F22),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: const Row(
           children: [
             Icon(Icons.battery_alert, color: Colors.orange),
             SizedBox(width: 8),
-            Text('Background Reliability'),
+            Text('Background Reliability', style: TextStyle(color: Colors.white)),
           ],
         ),
         content: const Text(
-          'To ensure you receive instant notifications when messages arrive on paired devices even while your phone is locked, please allow unrestricted background activity.',
+          'To ensure you receive instant notifications when messages arrive on paired devices even while your phone is locked, please allow unrestricted background activity.\n\n'
+          'You can also configure this anytime later from the side menu under "Battery Optimization".',
+          style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
         ),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx),
-            child: const Text('Later'),
+            child: const Text('Later', style: TextStyle(color: Colors.white60)),
           ),
           ElevatedButton(
+            style: ElevatedButton.styleFrom(backgroundColor: const Color(0xFF8AB4F8)),
             onPressed: () {
               Navigator.pop(ctx);
               ProfileManagerChannel.requestIgnoreBatteryOptimization();
             },
-            child: const Text('Allow'),
+            child: const Text('Allow', style: TextStyle(color: Color(0xFF131314))),
           ),
         ],
       ),
@@ -623,6 +634,269 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  void _showSettingsScreen() async {
+    const googleBlue = Color(0xFF8AB4F8);
+    bool isSyncEnabled = await _storageService.isBackgroundSyncEnabled();
+    bool isLockEnabled = await _securityService.isLockEnabled();
+    bool isBatteryIgnored =
+        await ProfileManagerChannel.isBatteryOptimizationIgnored();
+
+    if (!mounted) return;
+
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: const Color(0xFF1E1F22),
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
+      ),
+      builder: (ctx) => StatefulBuilder(
+        builder: (context, setSheetState) => DraggableScrollableSheet(
+          initialChildSize: 0.75,
+          minChildSize: 0.5,
+          maxChildSize: 0.95,
+          expand: false,
+          builder: (context, scrollController) => SingleChildScrollView(
+            controller: scrollController,
+            padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // Top drag handle
+                Center(
+                  child: Container(
+                    width: 40,
+                    height: 4,
+                    margin: const EdgeInsets.only(bottom: 16),
+                    decoration: BoxDecoration(
+                      color: Colors.white24,
+                      borderRadius: BorderRadius.circular(2),
+                    ),
+                  ),
+                ),
+
+                // Title
+                Row(
+                  children: [
+                    const Icon(Icons.settings, color: googleBlue, size: 24),
+                    const SizedBox(width: 10),
+                    const Text(
+                      'Settings',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const Spacer(),
+                    IconButton(
+                      icon: const Icon(Icons.close, color: Colors.white70),
+                      onPressed: () => Navigator.pop(ctx),
+                    ),
+                  ],
+                ),
+                const SizedBox(height: 16),
+
+                // SECTION: NOTIFICATIONS & BACKGROUND
+                const Text(
+                  'BACKGROUND & NOTIFICATIONS',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF282A2E),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: SwitchListTile(
+                    activeThumbColor: googleBlue,
+                    secondary: Icon(
+                      isSyncEnabled ? Icons.sync : Icons.sync_disabled,
+                      color: isSyncEnabled ? googleBlue : Colors.white38,
+                    ),
+                    title: const Text(
+                      'Persistent Sync Notification',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                    subtitle: Text(
+                      isSyncEnabled
+                          ? 'Constant notification active. Background messages are received even when closed.'
+                          : 'Disabled. Persistent status bar notification is hidden.',
+                      style:
+                          const TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                    value: isSyncEnabled,
+                    onChanged: (val) async {
+                      await _storageService.setBackgroundSyncEnabled(val);
+                      if (val) {
+                        if (_instances.isNotEmpty) {
+                          await _foregroundManager
+                              .startService(_instances.length);
+                        }
+                      } else {
+                        await _foregroundManager.stopService();
+                      }
+                      setSheetState(() {
+                        isSyncEnabled = val;
+                      });
+                      if (mounted) {
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(val
+                                ? 'Persistent notification & background sync enabled'
+                                : 'Constant notification turned off'),
+                            duration: const Duration(seconds: 2),
+                          ),
+                        );
+                      }
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // SECTION: SECURITY & SYSTEM
+                const Text(
+                  'SECURITY & OPTIMIZATION',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF282A2E),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading:
+                            const Icon(Icons.shield_outlined, color: googleBlue),
+                        title: const Text(
+                          'Security & App Lock',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: Text(
+                          isLockEnabled
+                              ? 'Protected with 4-Digit PIN & Biometrics'
+                              : 'Disabled (No PIN or Biometrics)',
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 12),
+                        ),
+                        trailing: const Icon(Icons.chevron_right,
+                            color: Colors.white38),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _showSecuritySettingsDialog();
+                        },
+                      ),
+                      const Divider(
+                          height: 1, indent: 54, color: Color(0xFF383A40)),
+                      ListTile(
+                        leading: Icon(
+                          Icons.battery_charging_full,
+                          color: isBatteryIgnored
+                              ? Colors.greenAccent
+                              : Colors.orangeAccent,
+                        ),
+                        title: const Text(
+                          'Battery Optimization',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: Text(
+                          isBatteryIgnored
+                              ? 'Unrestricted background activity granted'
+                              : 'Tap to exempt from Android battery restrictions',
+                          style: const TextStyle(
+                              color: Colors.white54, fontSize: 12),
+                        ),
+                        trailing: const Icon(Icons.chevron_right,
+                            color: Colors.white38),
+                        onTap: () async {
+                          await ProfileManagerChannel
+                              .requestIgnoreBatteryOptimization();
+                          final updated = await ProfileManagerChannel
+                              .isBatteryOptimizationIgnored();
+                          setSheetState(() {
+                            isBatteryIgnored = updated;
+                          });
+                        },
+                      ),
+                    ],
+                  ),
+                ),
+
+                const SizedBox(height: 24),
+
+                // SECTION: ABOUT
+                const Text(
+                  'ABOUT & DEVELOPER',
+                  style: TextStyle(
+                    color: Colors.white54,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                const SizedBox(height: 8),
+                Container(
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF282A2E),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: ListTile(
+                    leading: const Icon(Icons.info_outline, color: googleBlue),
+                    title: const Text(
+                      'About Multi-Message Hub',
+                      style: TextStyle(
+                        color: Colors.white,
+                        fontWeight: FontWeight.w600,
+                        fontSize: 14,
+                      ),
+                    ),
+                    subtitle: const Text(
+                      'Developer: MajorThug • Architecture & Specs',
+                      style: TextStyle(color: Colors.white54, fontSize: 12),
+                    ),
+                    trailing:
+                        const Icon(Icons.chevron_right, color: Colors.white38),
+                    onTap: () {
+                      Navigator.pop(ctx);
+                      _showAboutDialog();
+                    },
+                  ),
+                ),
+
+                const SizedBox(height: 30),
+              ],
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1421,14 +1695,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 const Divider(height: 28, color: Color(0xFF2B2D31)),
 
                 ListTile(
-                  leading: const Icon(Icons.shield_outlined, color: Colors.white70),
-                  title: const Text('Security & App Lock', style: TextStyle(color: Colors.white70)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showSecuritySettingsDialog();
-                  },
-                ),
-                ListTile(
                   leading: const Icon(Icons.help_outline, color: Colors.white70),
                   title: const Text('Pairing Guide', style: TextStyle(color: Colors.white70)),
                   onTap: () {
@@ -1437,20 +1703,21 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   },
                 ),
                 ListTile(
-                  leading: const Icon(Icons.battery_charging_full, color: Colors.white70),
-                  title: const Text('Battery Optimization', style: TextStyle(color: Colors.white70)),
+                  leading: const Icon(Icons.settings_outlined, color: googleBlue),
+                  title: const Text(
+                    'Settings',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'App lock, sync notification, battery, about',
+                    style: TextStyle(color: Colors.white54, fontSize: 11),
+                  ),
                   onTap: () {
                     Navigator.pop(context);
-                    ProfileManagerChannel.requestIgnoreBatteryOptimization();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.info_outline, color: googleBlue),
-                  title: const Text('About & Developer Info', style: TextStyle(color: Colors.white)),
-                  subtitle: const Text('Developer: MajorThug • v1.0.0', style: TextStyle(color: Colors.white54, fontSize: 11)),
-                  onTap: () {
-                    Navigator.pop(context);
-                    _showAboutDialog();
+                    _showSettingsScreen();
                   },
                 ),
               ],

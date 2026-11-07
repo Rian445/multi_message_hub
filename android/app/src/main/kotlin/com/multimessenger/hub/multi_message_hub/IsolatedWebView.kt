@@ -104,8 +104,10 @@ class IsolatedWebView(
             (function() {
                 if (window.__auto_qr_hooked) return;
                 window.__auto_qr_hooked = true;
+                let attempts = 0;
 
                 function findAndClickQr() {
+                    attempts++;
                     try {
                         const candidates = document.querySelectorAll("button, a, [role='button'], span");
                         for (let el of candidates) {
@@ -117,13 +119,18 @@ class IsolatedWebView(
                                 txt === "qr code pairing") {
                                 const target = el.closest("button, a, [role='button']") || el;
                                 target.click();
-                                break;
+                                if (window.__qrInterval) clearInterval(window.__qrInterval);
+                                return;
                             }
                         }
                     } catch (e) {}
+
+                    if (attempts >= 10 && window.__qrInterval) {
+                        clearInterval(window.__qrInterval);
+                    }
                 }
 
-                setInterval(findAndClickQr, 1000);
+                window.__qrInterval = setInterval(findAndClickQr, 1000);
                 findAndClickQr();
             })();
         """
@@ -132,15 +139,16 @@ class IsolatedWebView(
             (function() {
                 if (window.__remember_hooked) return;
                 window.__remember_hooked = true;
+                let attempts = 0;
 
                 function checkRememberToggle() {
+                    attempts++;
                     try {
-                        // Do not touch Google account login pages
                         if (window.location.hostname.includes("accounts.google.com")) {
+                            if (window.__remInterval) clearInterval(window.__remInterval);
                             return;
                         }
 
-                        // Specifically look for the "Remember this computer" slide toggle or checkbox
                         const toggles = document.querySelectorAll("mat-slide-toggle, [role='switch'], input[type='checkbox']");
                         for (let el of toggles) {
                             const ariaLabel = (el.getAttribute("aria-label") || "").toLowerCase();
@@ -156,12 +164,18 @@ class IsolatedWebView(
                                 if (!isChecked) {
                                     el.click();
                                 }
+                                if (window.__remInterval) clearInterval(window.__remInterval);
+                                return;
                             }
                         }
                     } catch (err) {}
+
+                    if (attempts >= 12 && window.__remInterval) {
+                        clearInterval(window.__remInterval);
+                    }
                 }
 
-                setInterval(checkRememberToggle, 2000);
+                window.__remInterval = setInterval(checkRememberToggle, 1500);
                 checkRememberToggle();
             })();
         """
@@ -244,6 +258,8 @@ class IsolatedWebView(
         val settings = webView.settings
         settings.javaScriptEnabled = true
         settings.domStorageEnabled = true
+        settings.databaseEnabled = true
+        settings.cacheMode = WebSettings.LOAD_DEFAULT
         settings.setSupportZoom(true)
         settings.builtInZoomControls = true
         settings.displayZoomControls = false

@@ -86,6 +86,9 @@ class ForegroundServiceManager {
       serviceId: 256,
       notificationTitle: 'Multi-Message Hub',
       notificationText: statusText,
+      notificationIcon: const NotificationIcon(
+        metaDataName: 'com.multimessenger.hub.service.NOTIFICATION_ICON',
+      ),
       callback: startHubForegroundCallback,
     );
   }
@@ -99,6 +102,9 @@ class ForegroundServiceManager {
       await FlutterForegroundTask.updateService(
         notificationTitle: 'Multi-Message Hub',
         notificationText: statusText,
+        notificationIcon: const NotificationIcon(
+          metaDataName: 'com.multimessenger.hub.service.NOTIFICATION_ICON',
+        ),
       );
     }
   }

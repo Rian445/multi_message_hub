@@ -49,6 +49,11 @@
             android:name="com.pravera.flutter_foreground_task.service.ForegroundService"
             android:foregroundServiceType="remoteMessaging|dataSync"
             android:exported="false" />
+
+        <!-- Notification icon metadata for flutter_foreground_task -->
+        <meta-data
+            android:name="com.multimessenger.hub.service.NOTIFICATION_ICON"
+            android:resource="@drawable/ic_notification" />
     </application>
     <!-- Required to query activities that can process text, see:
          https://developer.android.com/training/package-visibility and

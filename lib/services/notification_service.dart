@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter_local_notifications/flutter_local_notifications.dart';
 
 class NotificationService {
@@ -23,7 +24,7 @@ class NotificationService {
 
   Future<void> init() async {
     const AndroidInitializationSettings initializationSettingsAndroid =
-        AndroidInitializationSettings('@mipmap/ic_launcher');
+        AndroidInitializationSettings('@drawable/ic_notification');
 
     const InitializationSettings initializationSettings =
         InitializationSettings(
@@ -73,6 +74,8 @@ class NotificationService {
       channelDescription: channelDescription,
       importance: Importance.max,
       priority: Priority.high,
+      icon: 'ic_notification',
+      color: const Color(0xFF8AB4F8),
       ticker: 'New Google Message',
       styleInformation: BigTextStyleInformation(
         body,
