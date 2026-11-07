@@ -740,6 +740,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                     value: isSyncEnabled,
                     onChanged: (val) async {
+                      final messenger = ScaffoldMessenger.of(context);
                       await _storageService.setBackgroundSyncEnabled(val);
                       if (val) {
                         if (_instances.isNotEmpty) {
@@ -752,16 +753,14 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       setSheetState(() {
                         isSyncEnabled = val;
                       });
-                      if (mounted) {
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(val
-                                ? 'Persistent notification & background sync enabled'
-                                : 'Constant notification turned off'),
-                            duration: const Duration(seconds: 2),
-                          ),
-                        );
-                      }
+                      messenger.showSnackBar(
+                        SnackBar(
+                          content: Text(val
+                              ? 'Persistent notification & background sync enabled'
+                              : 'Constant notification turned off'),
+                          duration: const Duration(seconds: 2),
+                        ),
+                      );
                     },
                   ),
                 ),
@@ -1299,14 +1298,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 case 'delete':
                   _deleteInstance(_currentIndex);
                   break;
+                case 'settings':
+                  _showSettingsScreen();
+                  break;
                 case 'pair_guide':
                   _showPairingGuide();
-                  break;
-                case 'about':
-                  _showAboutDialog();
-                  break;
-                case 'security':
-                  _showSecuritySettingsDialog();
                   break;
               }
             },
@@ -1344,12 +1340,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 ),
               ],
               const PopupMenuItem(
-                value: 'security',
+                value: 'settings',
                 child: Row(
                   children: [
-                    Icon(Icons.shield_outlined, color: Color(0xFF8AB4F8)),
+                    Icon(Icons.settings_outlined, color: Color(0xFF8AB4F8)),
                     SizedBox(width: 10),
-                    Text('Security & App Lock', style: TextStyle(color: Colors.white)),
+                    Text('Settings', style: TextStyle(color: Colors.white)),
                   ],
                 ),
               ),
@@ -1360,16 +1356,6 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     Icon(Icons.help_outline, color: Color(0xFF8AB4F8)),
                     SizedBox(width: 10),
                     Text('Pairing Guide', style: TextStyle(color: Colors.white)),
-                  ],
-                ),
-              ),
-              const PopupMenuItem(
-                value: 'about',
-                child: Row(
-                  children: [
-                    Icon(Icons.info_outline, color: Color(0xFF8AB4F8)),
-                    SizedBox(width: 10),
-                    Text('About & Developer', style: TextStyle(color: Colors.white)),
                   ],
                 ),
               ),
