@@ -108,13 +108,36 @@ class MainActivity : FlutterFragmentActivity() {
                         }
                     }
                     "getAppCacheDir" -> {
-                        result.success(cacheDir.absolutePath)
+                        val externalCache = externalCacheDir
+                        val targetPath = if (externalCache != null && externalCache.canWrite()) {
+                            externalCache.absolutePath
+                        } else {
+                            cacheDir.absolutePath
+                        }
+                        result.success(targetPath)
                     }
                     "installApk" -> {
                         val filePath = call.argument<String>("filePath")
                         if (filePath != null) {
                             try {
                                 val file = File(filePath)
+                                if (!file.exists()) {
+                                    result.error("FILE_NOT_FOUND", "APK file does not exist at $filePath", null)
+                                    return@setMethodCallHandler
+                                }
+
+                                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                                    if (!packageManager.canRequestPackageInstalls()) {
+                                        val manageIntent = Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES).apply {
+                                            data = Uri.parse("package:$packageName")
+                                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                        }
+                                        startActivity(manageIntent)
+                                        result.error("PERMISSION_DENIED", "Unknown sources permission required. Please enable it and try again.", null)
+                                        return@setMethodCallHandler
+                                    }
+                                }
+
                                 val contentUri = FileProvider.getUriForFile(
                                     this,
                                     "$packageName.fileprovider",
@@ -125,6 +148,16 @@ class MainActivity : FlutterFragmentActivity() {
                                     addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                     addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
                                 }
+
+                                val resolveList = packageManager.queryIntentActivities(intent, android.content.pm.PackageManager.MATCH_DEFAULT_ONLY)
+                                for (resolveInfo in resolveList) {
+                                    grantUriPermission(
+                                        resolveInfo.activityInfo.packageName,
+                                        contentUri,
+                                        Intent.FLAG_GRANT_READ_URI_PERMISSION
+                                    )
+                                }
+
                                 startActivity(intent)
                                 result.success(true)
                             } catch (e: Exception) {

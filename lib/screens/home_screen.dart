@@ -820,11 +820,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             ),
             const SizedBox(width: 12),
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  const Text(
                     'Multi-Message Hub',
                     style: TextStyle(
                       color: Colors.white,
@@ -833,8 +833,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ),
                   Text(
-                    'Version 1.0.1 (Release)',
-                    style: TextStyle(color: Colors.white60, fontSize: 11),
+                    'Version ${UpdateService.currentAppVersion} (Release)',
+                    style: const TextStyle(color: Colors.white60, fontSize: 11),
                   ),
                 ],
               ),
@@ -1725,9 +1725,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             fontSize: 14,
                           ),
                         ),
-                        subtitle: const Text(
-                          'Current: v1.0.1 • GitHub Releases',
-                          style: TextStyle(color: Colors.white54, fontSize: 12),
+                        subtitle: Text(
+                          'Current: v${UpdateService.currentAppVersion} • GitHub Releases',
+                          style: const TextStyle(color: Colors.white54, fontSize: 12),
                         ),
                         trailing: const Icon(Icons.chevron_right,
                             color: Colors.white38),
@@ -3047,9 +3047,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  subtitle: const Text(
-                    'v1.0.1 • GitHub Releases',
-                    style: TextStyle(color: Colors.white54, fontSize: 11),
+                  subtitle: Text(
+                    'v${UpdateService.currentAppVersion} • GitHub Releases',
+                    style: const TextStyle(color: Colors.white54, fontSize: 11),
                   ),
                   onTap: () {
                     Navigator.pop(context);
@@ -3079,7 +3079,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                 ),
                 Text(
-                  'v1.0.1',
+                  'v${UpdateService.currentAppVersion}',
                   style: TextStyle(fontSize: 10, color: googleBlue.withValues(alpha: 0.8), fontWeight: FontWeight.bold),
                 ),
               ],
