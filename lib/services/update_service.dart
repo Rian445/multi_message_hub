@@ -46,20 +46,25 @@ class UpdateService {
   static const String githubReleasesWebUrl =
       'https://github.com/$githubRepo/releases';
 
+  /// Extracts standard semver digits (X.Y.Z) from tag names or release titles
+  static String extractSemver(String text) {
+    final match = RegExp(r'(\d+\.\d+\.\d+)').firstMatch(text);
+    if (match != null) {
+      return match.group(1)!;
+    }
+    String cleaned = text.trim();
+    if (cleaned.toLowerCase().startsWith('v')) {
+      cleaned = cleaned.substring(1);
+    }
+    return cleaned.split('+')[0].split('-')[0].trim();
+  }
+
   /// Compare two semver strings: e.g. "v1.0.1" vs "1.0.0"
   static bool isVersionNewer(String remoteTag, String currentVersion) {
-    String cleanRemote = remoteTag.trim().toLowerCase();
-    if (cleanRemote.startsWith('v')) {
-      cleanRemote = cleanRemote.substring(1);
-    }
-    String cleanCurrent = currentVersion.trim().toLowerCase();
-    if (cleanCurrent.startsWith('v')) {
-      cleanCurrent = cleanCurrent.substring(1);
-    }
+    final cleanRemote = extractSemver(remoteTag);
+    final cleanCurrent = extractSemver(currentVersion);
 
-    // Strip build numbers like "+1" or prerelease tags
-    cleanRemote = cleanRemote.split('+')[0].split('-')[0];
-    cleanCurrent = cleanCurrent.split('+')[0].split('-')[0];
+    if (cleanRemote == cleanCurrent) return false;
 
     final remoteParts =
         cleanRemote.split('.').map((e) => int.tryParse(e) ?? 0).toList();
@@ -129,14 +134,25 @@ class UpdateService {
         // If no direct APK asset found, default download link to the release web page
         apkDownloadUrl ??= htmlUrl;
 
-        final bool hasNewer = isVersionNewer(tagName, currentAppVersion);
+        final cleanCurrent = extractSemver(currentAppVersion);
+        final cleanTag = extractSemver(tagName);
+        final cleanTitle = extractSemver(releaseTitle);
+
+        // If the release tag or title matches the current version,
+        // the app is already on the latest update.
+        final bool isSameVersion = (cleanTag == cleanCurrent) ||
+            (cleanTitle.isNotEmpty && cleanTitle == cleanCurrent);
+
+        final bool hasNewer = !isSameVersion &&
+            (isVersionNewer(tagName, currentAppVersion) ||
+                (cleanTitle.isNotEmpty && isVersionNewer(cleanTitle, currentAppVersion)));
 
         return UpdateCheckResult(
           hasUpdate: hasNewer,
           isUpToDate: !hasNewer,
           currentVersion: currentAppVersion,
           latestVersion:
-              tagName.startsWith('v') ? tagName.substring(1) : tagName,
+              cleanTitle.isNotEmpty ? cleanTitle : cleanTag,
           releaseTitle: releaseTitle,
           releaseNotes: releaseNotes,
           releaseUrl: htmlUrl,

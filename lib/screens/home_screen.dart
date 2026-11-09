@@ -3060,29 +3060,32 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           ),
 
-          // Footer
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
-              border: Border(
-                top: BorderSide(color: Color(0xFF2B2D31), width: 1),
+          // Footer (elevated with SafeArea so Android navigation bar never overlaps it)
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
+              decoration: const BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: Color(0xFF2B2D31), width: 1),
+                ),
               ),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.security, size: 16, color: Colors.white54),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Multi-Profile Isolation • RIAN ISLAM',
-                    style: TextStyle(fontSize: 11, color: Colors.white54),
+              child: Row(
+                children: [
+                  const Icon(Icons.security, size: 16, color: Colors.white54),
+                  const SizedBox(width: 8),
+                  const Expanded(
+                    child: Text(
+                      'Multi-Profile Isolation • RIAN ISLAM',
+                      style: TextStyle(fontSize: 11, color: Colors.white54),
+                    ),
                   ),
-                ),
-                Text(
-                  'v${UpdateService.currentAppVersion}',
-                  style: TextStyle(fontSize: 10, color: googleBlue.withValues(alpha: 0.8), fontWeight: FontWeight.bold),
-                ),
-              ],
+                  Text(
+                    'v${UpdateService.currentAppVersion}',
+                    style: TextStyle(fontSize: 10, color: googleBlue.withValues(alpha: 0.8), fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
