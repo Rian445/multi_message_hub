@@ -39,7 +39,7 @@ class UpdateCheckResult {
 }
 
 class UpdateService {
-  static const String currentAppVersion = '0.0.2';
+  static const String currentAppVersion = '1.0.3';
   static const String githubRepo = 'Rian445/multi_message_hub';
   static const String githubReleasesApi =
       'https://api.github.com/repos/$githubRepo/releases/latest';
