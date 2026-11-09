@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'profile_manager_channel.dart';
 
 class UpdateCheckResult {
   final bool hasUpdate;
@@ -242,6 +243,21 @@ class UpdateService {
       return destinationPath;
     } finally {
       client.close();
+    }
+  }
+
+  /// Automatically deletes old downloaded update APKs from the cache
+  /// to reclaim device storage.
+  static Future<void> cleanCachedApk() async {
+    try {
+      String? cachePath = await ProfileManagerChannel.getAppCacheDir();
+      cachePath ??= Directory.systemTemp.path;
+      final apkFile = File('$cachePath/multi_message_hub_update.apk');
+      if (await apkFile.exists()) {
+        await apkFile.delete();
+      }
+    } catch (_) {
+      // Ignore cleanup errors
     }
   }
 }

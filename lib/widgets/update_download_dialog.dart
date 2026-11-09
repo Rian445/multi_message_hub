@@ -155,6 +155,7 @@ class _UpdateDownloadDialogState extends State<UpdateDownloadDialog>
 
   void _onCancel() {
     _isCancelled = true;
+    UpdateService.cleanCachedApk();
     Navigator.pop(context);
     StatusFeedbackDialog.showInfo(
       context,

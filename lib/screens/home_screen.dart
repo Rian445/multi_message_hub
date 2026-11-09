@@ -95,6 +95,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
   }
 
   Future<void> _initializeHub() async {
+    // Clean any old downloaded update APKs from cache to free storage
+    unawaited(UpdateService.cleanCachedApk());
+
     // Check Multi-Profile support in AndroidX WebKit
     final supported = await ProfileManagerChannel.isMultiProfileSupported();
 
