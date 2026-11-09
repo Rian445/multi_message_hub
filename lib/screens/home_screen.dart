@@ -647,7 +647,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           ),
                         ),
                         Text(
-                          'MajorThug',
+                          'RIAN ISLAM',
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 16,
@@ -782,7 +782,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 const SizedBox(height: 8),
                 const Center(
                   child: Text(
-                    'Developer: MajorThug • Built for Android 8.0+',
+                    'Developer: RIAN ISLAM • Built for Android 8.0+',
                     style: TextStyle(color: Colors.white38, fontSize: 11),
                   ),
                 ),
@@ -1498,7 +1498,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       ),
                     ),
                     subtitle: const Text(
-                      'Developer: MajorThug • Architecture & Specs',
+                      'Developer: RIAN ISLAM • Architecture & Specs',
                       style: TextStyle(color: Colors.white54, fontSize: 12),
                     ),
                     trailing:
@@ -2278,7 +2278,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   borderRadius: BorderRadius.circular(4),
                                 ),
                                 child: const Text(
-                                  'DEV: MajorThug',
+                                  'DEV: RIAN ISLAM',
                                   style: TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.bold,
@@ -2802,7 +2802,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                 const SizedBox(width: 8),
                 const Expanded(
                   child: Text(
-                    'Multi-Profile Isolation • MajorThug',
+                    'Multi-Profile Isolation • RIAN ISLAM',
                     style: TextStyle(fontSize: 11, color: Colors.white54),
                   ),
                 ),

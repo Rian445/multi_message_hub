@@ -2,7 +2,7 @@
 
 **Effective Date:** November 2026  
 **Application:** Multi-Message Hub  
-**Developer:** MajorThug  
+**Developer:** RIAN ISLAM  
 
 ---
 
@@ -78,6 +78,6 @@ Multi-Message Hub requests only the minimal permissions necessary for core funct
 
 ## 7. Contact & Developer Information
 If you have any questions or security feedback regarding this policy or the application architecture:
-* **Lead Developer**: MajorThug
+* **Lead Developer**: RIAN ISLAM
 * **Application**: Multi-Message Hub
 * **Repository**: [Multi-Message Hub on GitHub](https://github.com/Rian445/multi-messenger)

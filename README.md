@@ -63,7 +63,7 @@ Multi-Message Hub is built with a zero-compromise approach to privacy, local dat
 
 ## 📱 Developer & Project Info
 
-* **Lead Developer**: **MajorThug**
+* **Lead Developer**: **RIAN ISLAM**
 * **Application Name**: Multi-Message Hub
 * **Current Version**: `1.0.0 (Release Build)`
 * **Target Platform**: Android 8.0+ (API Level 26+)
