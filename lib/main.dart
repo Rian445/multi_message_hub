@@ -1,9 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'constants/app_config.dart';
 import 'screens/home_screen.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Read app version and metadata from platform
+  await AppConfig.init();
 
   // Set system UI overlay style matching Google Messages Dark
   SystemChrome.setSystemUIOverlayStyle(

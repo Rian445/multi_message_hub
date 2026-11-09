@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import '../constants/app_config.dart';
 
 class UpdateCheckResult {
   final bool hasUpdate;
@@ -38,11 +39,11 @@ class UpdateCheckResult {
 }
 
 class UpdateService {
-  static const String currentAppVersion = '1.0.1';
-  static const String githubRepo = 'Rian445/multi_message_hub';
-  static const String githubReleasesApi =
+  static String get currentAppVersion => AppConfig.version;
+  static String get githubRepo => AppConfig.githubRepo;
+  static String get githubReleasesApi =>
       'https://api.github.com/repos/$githubRepo/releases/latest';
-  static const String githubReleasesWebUrl =
+  static String get githubReleasesWebUrl =>
       'https://github.com/$githubRepo/releases';
 
   /// Compare two semver strings: e.g. "v1.0.1" vs "1.0.0"
@@ -145,7 +146,7 @@ class UpdateService {
         );
       } else if (response.statusCode == 404) {
         // No release has been published on GitHub yet
-        return const UpdateCheckResult(
+        return UpdateCheckResult(
           hasUpdate: false,
           isUpToDate: true,
           currentVersion: currentAppVersion,
@@ -167,7 +168,7 @@ class UpdateService {
         );
       }
     } on SocketException {
-      return const UpdateCheckResult(
+      return UpdateCheckResult(
         hasUpdate: false,
         isUpToDate: false,
         hasError: true,

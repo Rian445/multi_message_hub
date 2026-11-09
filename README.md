@@ -65,7 +65,7 @@ Multi-Message Hub is built with a zero-compromise approach to privacy, local dat
 
 * **Lead Developer**: **RIAN ISLAM**
 * **Application Name**: Multi-Message Hub
-* **Current Version**: `1.0.1 (Release Build)`
+* **Current Version**: `0.0.2 (Release Build)`
 * **Target Platform**: Android 8.0+ (API Level 26+)
 * **Engine Architecture**: Flutter + AndroidX WebKit Multi-Profile (`androidx.webkit:webkit:1.12.1`)
 

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:uuid/uuid.dart';
 
+import '../constants/app_config.dart';
 import '../models/profile_instance.dart';
 import '../screens/lock_screen.dart';
 import '../services/foreground_service.dart';
@@ -817,11 +818,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               ),
             ),
             const SizedBox(width: 12),
-            const Expanded(
+            Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
+                  const Text(
                     'Multi-Message Hub',
                     style: TextStyle(
                       color: Colors.white,
@@ -830,8 +831,8 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ),
                   Text(
-                    'Version 1.0.1 (Release)',
-                    style: TextStyle(color: Colors.white60, fontSize: 11),
+                    'Version ${AppConfig.version} (Release)',
+                    style: const TextStyle(color: Colors.white60, fontSize: 11),
                   ),
                 ],
               ),
@@ -869,7 +870,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                           ),
                         ),
                         Text(
-                          'RIAN ISLAM',
+                          AppConfig.developerName,
                           style: TextStyle(
                             color: Colors.white,
                             fontSize: 16,
@@ -1002,10 +1003,10 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   'Chats are safeguarded behind Android\'s hardware BiometricPrompt (Fingerprint / Face Unlock) and a 4-digit Master PIN protected with salted SHA-256 key stretching and progressive brute-force rate-limiting lockout.',
                 ),
                 const SizedBox(height: 8),
-                const Center(
+                Center(
                   child: Text(
-                    'Developer: RIAN ISLAM • Built for Android 8.0+',
-                    style: TextStyle(color: Colors.white38, fontSize: 11),
+                    'Developer: ${AppConfig.developerName} • Built for Android 8.0+',
+                    style: const TextStyle(color: Colors.white38, fontSize: 11),
                   ),
                 ),
               ],
@@ -1722,9 +1723,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             fontSize: 14,
                           ),
                         ),
-                        subtitle: const Text(
-                          'Current: v1.0.1 • GitHub Releases',
-                          style: TextStyle(color: Colors.white54, fontSize: 12),
+                        subtitle: Text(
+                          'Current: v${AppConfig.version} • GitHub Releases',
+                          style: const TextStyle(color: Colors.white54, fontSize: 12),
                         ),
                         trailing: const Icon(Icons.chevron_right,
                             color: Colors.white38),
@@ -1746,9 +1747,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                             fontSize: 14,
                           ),
                         ),
-                        subtitle: const Text(
-                          'Developer: RIAN ISLAM • Architecture & Specs',
-                          style: TextStyle(color: Colors.white54, fontSize: 12),
+                        subtitle: Text(
+                          'Developer: ${AppConfig.developerName} • Architecture & Specs',
+                          style: const TextStyle(color: Colors.white54, fontSize: 12),
                         ),
                         trailing:
                             const Icon(Icons.chevron_right, color: Colors.white38),
@@ -2528,9 +2529,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   color: googleBlue.withValues(alpha: 0.2),
                                   borderRadius: BorderRadius.circular(4),
                                 ),
-                                child: const Text(
-                                  'DEV: RIAN ISLAM',
-                                  style: TextStyle(
+                                child: Text(
+                                  'DEV: ${AppConfig.developerName}',
+                                  style: const TextStyle(
                                     fontSize: 10,
                                     fontWeight: FontWeight.bold,
                                     color: googleBlue,
@@ -3044,9 +3045,9 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                       fontWeight: FontWeight.bold,
                     ),
                   ),
-                  subtitle: const Text(
-                    'v1.0.1 • GitHub Releases',
-                    style: TextStyle(color: Colors.white54, fontSize: 11),
+                  subtitle: Text(
+                    'v${AppConfig.version} • GitHub Releases',
+                    style: const TextStyle(color: Colors.white54, fontSize: 11),
                   ),
                   onTap: () {
                     Navigator.pop(context);
@@ -3057,29 +3058,36 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
             ),
           ),
 
-          // Footer
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-            decoration: const BoxDecoration(
-              border: Border(
-                top: BorderSide(color: Color(0xFF2B2D31), width: 1),
+          // Footer (lifted with SafeArea to clear Android navigation buttons/gestures)
+          SafeArea(
+            top: false,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+              decoration: const BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: Color(0xFF2B2D31), width: 1),
+                ),
               ),
-            ),
-            child: Row(
-              children: [
-                const Icon(Icons.security, size: 16, color: Colors.white54),
-                const SizedBox(width: 8),
-                const Expanded(
-                  child: Text(
-                    'Multi-Profile Isolation • RIAN ISLAM',
-                    style: TextStyle(fontSize: 11, color: Colors.white54),
+              child: Row(
+                children: [
+                  const Icon(Icons.security, size: 16, color: Colors.white54),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Multi-Profile Isolation • ${AppConfig.developerName}',
+                      style: const TextStyle(fontSize: 11, color: Colors.white54),
+                    ),
                   ),
-                ),
-                Text(
-                  'v1.0.1',
-                  style: TextStyle(fontSize: 10, color: googleBlue.withValues(alpha: 0.8), fontWeight: FontWeight.bold),
-                ),
-              ],
+                  Text(
+                    'v${AppConfig.version}',
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: googleBlue.withValues(alpha: 0.8),
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ],
