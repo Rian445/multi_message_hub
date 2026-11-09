@@ -2,6 +2,7 @@ import 'dart:convert';
 import 'dart:math';
 import 'package:crypto/crypto.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:local_auth/local_auth.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -32,7 +33,60 @@ class SecurityService {
   static const String _keyLockoutUntil = 'sec_lockout_until_timestamp';
 
   final LocalAuthentication _localAuth = LocalAuthentication();
-  bool isAuthenticating = false;
+  final FlutterSecureStorage _secureStorage = const FlutterSecureStorage(
+    aOptions: AndroidOptions(
+      resetOnError: true,
+    ),
+  );
+
+  bool _isAuthenticating = false;
+  bool get isAuthenticating => _isAuthenticating;
+
+  /// Hardware-backed Keystore reader with transparent migration from SharedPreferences
+  Future<String?> _readSecure(String key) async {
+    try {
+      final val = await _secureStorage.read(key: key);
+      if (val != null) return val;
+
+      // Transparent legacy migration from SharedPreferences
+      final prefs = await SharedPreferences.getInstance();
+      if (prefs.containsKey(key)) {
+        final legacyVal = prefs.get(key)?.toString();
+        if (legacyVal != null) {
+          await _secureStorage.write(key: key, value: legacyVal);
+          await prefs.remove(key);
+          return legacyVal;
+        }
+      }
+    } catch (_) {
+      final prefs = await SharedPreferences.getInstance();
+      return prefs.get(key)?.toString();
+    }
+    return null;
+  }
+
+  /// Hardware-backed Keystore writer (removes unencrypted SharedPreferences artifact)
+  Future<void> _writeSecure(String key, String value) async {
+    try {
+      await _secureStorage.write(key: key, value: value);
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(key);
+    } catch (_) {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setString(key, value);
+    }
+  }
+
+  /// Deletes a key from both Keystore and SharedPreferences
+  Future<void> _deleteSecure(String key) async {
+    try {
+      await _secureStorage.delete(key: key);
+    } catch (_) {}
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.remove(key);
+    } catch (_) {}
+  }
 
   /// Cryptographic salt generation via Random.secure()
   String _generateSalt() {
@@ -53,56 +107,62 @@ class SecurityService {
   }
 
   Future<int> getLockTimeoutSeconds() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getInt(_keyTimeout) ?? 0; // Default 0 = Immediate
+    final val = await _readSecure(_keyTimeout);
+    if (val != null) {
+      return int.tryParse(val) ?? 0;
+    }
+    return 0; // Default 0 = Immediate
   }
 
   Future<void> setLockTimeoutSeconds(int seconds) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setInt(_keyTimeout, seconds);
+    await _writeSecure(_keyTimeout, seconds.toString());
   }
 
   Future<bool> isLockEnabled() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_keyLockEnabled) ?? false;
+    final val = await _readSecure(_keyLockEnabled);
+    if (val != null) {
+      return val == 'true';
+    }
+    return false;
   }
 
   Future<bool> isBiometricsEnabled() async {
-    final prefs = await SharedPreferences.getInstance();
-    return prefs.getBool(_keyBiometrics) ?? true;
+    final val = await _readSecure(_keyBiometrics);
+    if (val != null) {
+      return val == 'true';
+    }
+    return true; // Default true if not explicitly disabled
   }
 
   Future<bool> hasPin() async {
-    final prefs = await SharedPreferences.getInstance();
-    final hash = prefs.getString(_keyPinHash);
+    final hash = await _readSecure(_keyPinHash);
     if (hash != null && hash.isNotEmpty) return true;
-    final legacy = prefs.getString(_keyLegacyPin);
+    final legacy = await _readSecure(_keyLegacyPin);
     return legacy != null && legacy.isNotEmpty;
   }
 
   /// Check remaining lockout seconds if currently locked out
   Future<int> getRemainingLockoutSeconds() async {
-    final prefs = await SharedPreferences.getInstance();
-    final lockoutUntil = prefs.getInt(_keyLockoutUntil) ?? 0;
+    final val = await _readSecure(_keyLockoutUntil);
+    final lockoutUntil = val != null ? int.tryParse(val) ?? 0 : 0;
     final now = DateTime.now().millisecondsSinceEpoch;
     if (lockoutUntil > now) {
       return ((lockoutUntil - now) / 1000).ceil();
     }
     // Expired lockout
     if (lockoutUntil > 0) {
-      await prefs.remove(_keyLockoutUntil);
+      await _deleteSecure(_keyLockoutUntil);
     }
     return 0;
   }
 
   /// Detailed PIN verification with progressive rate-limiting & lockout
   Future<PinVerifyResult> verifyPinDetailed(String enteredPin) async {
-    final prefs = await SharedPreferences.getInstance();
-
     // 1. Check if user is currently locked out
     final remainingLockout = await getRemainingLockoutSeconds();
     if (remainingLockout > 0) {
-      final attempts = prefs.getInt(_keyFailedAttempts) ?? 0;
+      final attemptsVal = await _readSecure(_keyFailedAttempts);
+      final attempts = attemptsVal != null ? int.tryParse(attemptsVal) ?? 0 : 0;
       return PinVerifyResult(
         isValid: false,
         isLockedOut: true,
@@ -113,18 +173,18 @@ class SecurityService {
     }
 
     // 2. Retrieve hash and salt (with transparent legacy migration)
-    String? hash = prefs.getString(_keyPinHash);
-    String? salt = prefs.getString(_keyPinSalt);
+    String? hash = await _readSecure(_keyPinHash);
+    String? salt = await _readSecure(_keyPinSalt);
 
     if (hash == null || salt == null) {
-      final legacyPin = prefs.getString(_keyLegacyPin);
+      final legacyPin = await _readSecure(_keyLegacyPin);
       if (legacyPin != null && legacyPin.isNotEmpty) {
         // Transparent migration: hash legacy plaintext PIN
         salt = _generateSalt();
         hash = _computeHash(legacyPin, salt);
-        await prefs.setString(_keyPinSalt, salt);
-        await prefs.setString(_keyPinHash, hash);
-        await prefs.remove(_keyLegacyPin);
+        await _writeSecure(_keyPinSalt, salt);
+        await _writeSecure(_keyPinHash, hash);
+        await _deleteSecure(_keyLegacyPin);
       }
     }
 
@@ -140,14 +200,16 @@ class SecurityService {
     final isMatch = computedHash == hash;
 
     if (isMatch) {
-      // Success: reset failed attempt counter and lockout
-      await prefs.remove(_keyFailedAttempts);
-      await prefs.remove(_keyLockoutUntil);
+      // Success: reset failed attempt counter and lockout in Keystore
+      await _deleteSecure(_keyFailedAttempts);
+      await _deleteSecure(_keyLockoutUntil);
       return const PinVerifyResult(isValid: true);
     } else {
-      // Failure: increment attempt counter and apply exponential backoff
-      final failedAttempts = (prefs.getInt(_keyFailedAttempts) ?? 0) + 1;
-      await prefs.setInt(_keyFailedAttempts, failedAttempts);
+      // Failure: increment attempt counter and apply exponential backoff in Keystore
+      final currentAttemptsVal = await _readSecure(_keyFailedAttempts);
+      final failedAttempts =
+          (currentAttemptsVal != null ? int.tryParse(currentAttemptsVal) ?? 0 : 0) + 1;
+      await _writeSecure(_keyFailedAttempts, failedAttempts.toString());
 
       int lockoutDuration = 0;
       if (failedAttempts >= 15) {
@@ -159,8 +221,9 @@ class SecurityService {
       }
 
       if (lockoutDuration > 0) {
-        final lockoutUntil = DateTime.now().millisecondsSinceEpoch + (lockoutDuration * 1000);
-        await prefs.setInt(_keyLockoutUntil, lockoutUntil);
+        final lockoutUntil =
+            DateTime.now().millisecondsSinceEpoch + (lockoutDuration * 1000);
+        await _writeSecure(_keyLockoutUntil, lockoutUntil.toString());
         return PinVerifyResult(
           isValid: false,
           isLockedOut: true,
@@ -190,57 +253,58 @@ class SecurityService {
     return result.isValid;
   }
 
-  /// Enable lock using salted SHA-256 key stretching
+  /// Enable lock using salted SHA-256 key stretching in hardware-backed Keystore
   Future<void> enableLock(String pin, {bool useBiometrics = true}) async {
-    final prefs = await SharedPreferences.getInstance();
     final salt = _generateSalt();
     final hash = _computeHash(pin, salt);
 
-    await prefs.setString(_keyPinSalt, salt);
-    await prefs.setString(_keyPinHash, hash);
-    await prefs.remove(_keyLegacyPin); // Purge any plaintext PIN
-    await prefs.remove(_keyFailedAttempts);
-    await prefs.remove(_keyLockoutUntil);
+    await _writeSecure(_keyPinSalt, salt);
+    await _writeSecure(_keyPinHash, hash);
+    await _deleteSecure(_keyLegacyPin); // Purge any plaintext PIN
+    await _deleteSecure(_keyFailedAttempts);
+    await _deleteSecure(_keyLockoutUntil);
 
-    await prefs.setBool(_keyLockEnabled, true);
-    await prefs.setBool(_keyBiometrics, useBiometrics);
+    await _writeSecure(_keyLockEnabled, 'true');
+    await _writeSecure(_keyBiometrics, useBiometrics.toString());
   }
 
   Future<void> setBiometricsEnabled(bool enabled) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_keyBiometrics, enabled);
+    await _writeSecure(_keyBiometrics, enabled.toString());
   }
 
   Future<void> disableLock() async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.remove(_keyPinHash);
-    await prefs.remove(_keyPinSalt);
-    await prefs.remove(_keyLegacyPin);
-    await prefs.remove(_keyFailedAttempts);
-    await prefs.remove(_keyLockoutUntil);
-    await prefs.setBool(_keyLockEnabled, false);
+    await _deleteSecure(_keyPinHash);
+    await _deleteSecure(_keyPinSalt);
+    await _deleteSecure(_keyLegacyPin);
+    await _deleteSecure(_keyFailedAttempts);
+    await _deleteSecure(_keyLockoutUntil);
+    await _writeSecure(_keyLockEnabled, 'false');
   }
 
   Future<bool> canCheckBiometrics() async {
     try {
       final canAuthenticateWithBiometrics = await _localAuth.canCheckBiometrics;
-      final canAuthenticate = canAuthenticateWithBiometrics || await _localAuth.isDeviceSupported();
+      final canAuthenticate =
+          canAuthenticateWithBiometrics || await _localAuth.isDeviceSupported();
       return canAuthenticate;
     } catch (_) {
       return false;
     }
   }
 
+  /// Biometric authentication strictly requiring biometric credentials
+  /// (biometricOnly: true prevents device lock pattern/PIN bypass)
   Future<bool> authenticateBiometrics() async {
-    if (isAuthenticating) return false;
-    isAuthenticating = true;
+    if (_isAuthenticating) return false;
+    _isAuthenticating = true;
     try {
       final canAuth = await canCheckBiometrics();
       if (!canAuth) return false;
 
       final result = await _localAuth.authenticate(
         localizedReason: 'Authenticate to unlock Multi-Message Hub',
-        biometricOnly: false,
+        biometricOnly: true,
+        persistAcrossBackgrounding: true,
       );
       return result;
     } on PlatformException catch (_) {
@@ -248,9 +312,7 @@ class SecurityService {
     } catch (_) {
       return false;
     } finally {
-      Future.delayed(const Duration(milliseconds: 1500), () {
-        isAuthenticating = false;
-      });
+      _isAuthenticating = false;
     }
   }
 }

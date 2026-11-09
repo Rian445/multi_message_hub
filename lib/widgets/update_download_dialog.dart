@@ -86,6 +86,7 @@ class _UpdateDownloadDialogState extends State<UpdateDownloadDialog>
       final downloadedPath = await UpdateService.downloadApk(
         downloadUrl: downloadUrl,
         destinationPath: apkPath,
+        expectedSha256: widget.update.expectedSha256,
         isCancelled: () => _isCancelled,
         onProgress: (received, total, percent) {
           if (!mounted || _isCancelled) return;

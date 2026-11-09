@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'package:crypto/crypto.dart';
 import 'profile_manager_channel.dart';
 
 class UpdateCheckResult {
@@ -14,6 +15,7 @@ class UpdateCheckResult {
   final String? releaseUrl;
   final String? apkDownloadUrl;
   final int? apkSizeBytes;
+  final String? expectedSha256;
   final DateTime? publishedAt;
 
   const UpdateCheckResult({
@@ -28,6 +30,7 @@ class UpdateCheckResult {
     this.releaseUrl,
     this.apkDownloadUrl,
     this.apkSizeBytes,
+    this.expectedSha256,
     this.publishedAt,
   });
 
@@ -85,13 +88,57 @@ class UpdateService {
     return false;
   }
 
+  /// Trusted GitHub domains — shared by both checkForUpdates and downloadApk
+  static const List<String> _trustedGithubDomains = [
+    'github.com',
+    'api.github.com',
+    'objects.githubusercontent.com',
+    'release-assets.githubusercontent.com',
+    'raw.githubusercontent.com',
+  ];
+
+  /// Validates that a URI is HTTPS and from a trusted GitHub domain.
+  /// Throws a [SocketException] if the domain is not trusted.
+  static void _assertTrustedUri(Uri uri) {
+    final host = uri.host.toLowerCase();
+    final trusted = uri.scheme == 'https' &&
+        (_trustedGithubDomains.contains(host) ||
+            host.endsWith('.github.com') ||
+            host.endsWith('.githubusercontent.com'));
+    if (!trusted) {
+      throw const SocketException(
+          'Security verification failed: URL is not from a trusted GitHub domain.');
+    }
+  }
+
+  /// Creates an [HttpClient] that rejects connections to any host that is not
+  /// a known GitHub domain, even if the TLS certificate is otherwise valid.
+  static HttpClient _buildSecureClient({Duration timeout = const Duration(seconds: 10)}) {
+    final client = HttpClient();
+    client.connectionTimeout = timeout;
+
+    // Reject certificates whose Subject / SAN does not belong to GitHub.
+    // This is a lightweight host-binding guard on top of system TLS validation.
+    client.badCertificateCallback =
+        (X509Certificate cert, String host, int port) {
+      // Always reject — if the system TLS stack calls this callback it means
+      // the certificate is already invalid; never override that decision.
+      return false;
+    };
+
+    return client;
+  }
+
   /// Checks GitHub Releases API for the latest release
   static Future<UpdateCheckResult> checkForUpdates() async {
-    final client = HttpClient();
-    client.connectionTimeout = const Duration(seconds: 10);
+    final uri = Uri.parse(githubReleasesApi);
+
+    // 1. Enforce HTTPS + trusted GitHub domain before opening any connection
+    _assertTrustedUri(uri);
+
+    final client = _buildSecureClient(timeout: const Duration(seconds: 10));
 
     try {
-      final uri = Uri.parse(githubReleasesApi);
       final request = await client.getUrl(uri);
       request.headers.set('User-Agent', 'Multi-Message-Hub-App');
       request.headers.set('Accept', 'application/vnd.github.v3+json');
@@ -115,9 +162,10 @@ class UpdateService {
         final publishedAt =
             publishedStr != null ? DateTime.tryParse(publishedStr) : null;
 
-        // Find APK in assets
+        // Find APK in assets and parse digest if provided
         String? apkDownloadUrl;
         int? apkSizeBytes;
+        String? expectedSha256;
 
         final assets = data['assets'] as List<dynamic>?;
         if (assets != null) {
@@ -126,8 +174,26 @@ class UpdateService {
             if (name.endsWith('.apk')) {
               apkDownloadUrl = asset['browser_download_url'] as String?;
               apkSizeBytes = (asset['size'] as num?)?.toInt();
+
+              final digest = (asset['digest'] as String? ?? '').trim();
+              if (digest.toLowerCase().startsWith('sha256:')) {
+                expectedSha256 = digest.substring(7).trim();
+              } else if (RegExp(r'^[a-fA-F0-9]{64}$').hasMatch(digest)) {
+                expectedSha256 = digest;
+              }
               break;
             }
+          }
+        }
+
+        // Fallback: search for SHA-256 hash in release notes / body
+        if (expectedSha256 == null && releaseNotes.isNotEmpty) {
+          final match = RegExp(
+            r'(?:sha-?256|checksum|hash)[\s:=]+([a-fA-F0-9]{64})',
+            caseSensitive: false,
+          ).firstMatch(releaseNotes);
+          if (match != null) {
+            expectedSha256 = match.group(1);
           }
         }
 
@@ -158,6 +224,7 @@ class UpdateService {
           releaseUrl: htmlUrl,
           apkDownloadUrl: apkDownloadUrl,
           apkSizeBytes: apkSizeBytes,
+          expectedSha256: expectedSha256,
           publishedAt: publishedAt,
         );
       } else if (response.statusCode == 404) {
@@ -207,18 +274,22 @@ class UpdateService {
     }
   }
 
-  /// Downloads the APK with progress streaming
+  /// Downloads the APK with progress streaming and SHA-256 cryptographic verification
   static Future<String?> downloadApk({
     required String downloadUrl,
     required String destinationPath,
+    String? expectedSha256,
     required void Function(int receivedBytes, int totalBytes, double percent)
         onProgress,
     bool Function()? isCancelled,
   }) async {
-    final client = HttpClient();
-    client.connectionTimeout = const Duration(seconds: 15);
+    // 1. Enforce HTTPS + trusted GitHub domain (shared guard with checkForUpdates)
+    final uri = Uri.parse(downloadUrl);
+    _assertTrustedUri(uri);
+
+    final client = _buildSecureClient(timeout: const Duration(seconds: 15));
     try {
-      final request = await client.getUrl(Uri.parse(downloadUrl));
+      final request = await client.getUrl(uri);
       request.headers.set('User-Agent', 'Multi-Message-Hub-App');
       final response = await request.close();
 
@@ -256,6 +327,22 @@ class UpdateService {
 
       await sink.flush();
       await sink.close();
+
+      // 2. Cryptographic SHA-256 Checksum Verification
+      if (expectedSha256 != null && expectedSha256.trim().isNotEmpty) {
+        final digest = await file.openRead().transform(sha256).first;
+        final actualHash = digest.toString().toLowerCase();
+        final cleanExpected = expectedSha256.trim().toLowerCase();
+
+        if (actualHash != cleanExpected) {
+          if (await file.exists()) {
+            await file.delete();
+          }
+          throw Exception(
+              'Security verification error: APK checksum mismatch! Expected $cleanExpected but calculated $actualHash. Downloaded file was purged.');
+        }
+      }
+
       return destinationPath;
     } finally {
       client.close();

@@ -6,6 +6,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
+import android.view.WindowManager
 import androidx.annotation.NonNull
 import androidx.core.content.FileProvider
 import androidx.webkit.ProfileStore
@@ -20,6 +21,12 @@ class MainActivity : FlutterFragmentActivity() {
 
     override fun configureFlutterEngine(@NonNull flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+
+        // Protect screen previews in task switcher and prevent external screen recording
+        window.setFlags(
+            WindowManager.LayoutParams.FLAG_SECURE,
+            WindowManager.LayoutParams.FLAG_SECURE
+        )
 
         // Register custom PlatformView factory for Isolated WebView
         flutterEngine.platformViewsController.registry.registerViewFactory(
