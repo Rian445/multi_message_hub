@@ -7,11 +7,13 @@ import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.annotation.NonNull
+import androidx.core.content.FileProvider
 import androidx.webkit.ProfileStore
 import androidx.webkit.WebViewFeature
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 
 class MainActivity : FlutterFragmentActivity() {
     private val CHANNEL_PROFILE_MANAGER = "com.multimessenger.hub/profile_manager"
@@ -87,6 +89,51 @@ class MainActivity : FlutterFragmentActivity() {
                             }
                         }
                         result.success(true)
+                    }
+                    "openUrl" -> {
+                        val url = call.argument<String>("url")
+                        if (url != null) {
+                            try {
+                                val intent = Intent(Intent.ACTION_VIEW, Uri.parse(url)).apply {
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                startActivity(intent)
+                                result.success(true)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                result.success(false)
+                            }
+                        } else {
+                            result.success(false)
+                        }
+                    }
+                    "getAppCacheDir" -> {
+                        result.success(cacheDir.absolutePath)
+                    }
+                    "installApk" -> {
+                        val filePath = call.argument<String>("filePath")
+                        if (filePath != null) {
+                            try {
+                                val file = File(filePath)
+                                val contentUri = FileProvider.getUriForFile(
+                                    this,
+                                    "$packageName.fileprovider",
+                                    file
+                                )
+                                val intent = Intent(Intent.ACTION_VIEW).apply {
+                                    setDataAndType(contentUri, "application/vnd.android.package-archive")
+                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                                }
+                                startActivity(intent)
+                                result.success(true)
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                                result.error("INSTALL_ERROR", e.message, null)
+                            }
+                        } else {
+                            result.error("INVALID_PATH", "File path was null", null)
+                        }
                     }
                     else -> result.notImplemented()
                 }

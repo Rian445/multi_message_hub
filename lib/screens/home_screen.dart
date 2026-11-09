@@ -9,8 +9,10 @@ import '../services/notification_service.dart';
 import '../services/profile_manager_channel.dart';
 import '../services/profile_storage_service.dart';
 import '../services/security_service.dart';
+import '../services/update_service.dart';
 import '../widgets/isolated_web_view_widget.dart';
 import '../widgets/status_feedback_dialog.dart';
+import '../widgets/update_download_dialog.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({super.key});
@@ -576,6 +578,226 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
     );
   }
 
+  Future<void> _checkForUpdates({bool isManual = true}) async {
+    if (isManual) {
+      showDialog(
+        context: context,
+        barrierDismissible: false,
+        builder: (ctx) => AlertDialog(
+          backgroundColor: const Color(0xFF1E1F22),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          content: const Row(
+            children: [
+              SizedBox(
+                width: 24,
+                height: 24,
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF8AB4F8)),
+                ),
+              ),
+              SizedBox(width: 18),
+              Expanded(
+                child: Text(
+                  'Checking for updates on GitHub...',
+                  style: TextStyle(color: Colors.white, fontSize: 13),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final result = await UpdateService.checkForUpdates();
+
+    if (isManual && mounted) {
+      Navigator.of(context, rootNavigator: true).pop(); // Dismiss loading dialog
+    }
+
+    if (!mounted) return;
+
+    if (result.hasError) {
+      if (isManual) {
+        StatusFeedbackDialog.showError(
+          context,
+          title: 'Update Check Failed',
+          message: result.errorMessage ?? 'Unable to connect to GitHub Releases.',
+        );
+      }
+    } else if (result.hasUpdate) {
+      _showUpdateAvailableDialog(result);
+    } else {
+      if (isManual) {
+        StatusFeedbackDialog.showSuccess(
+          context,
+          title: 'You\'re on the Latest Version!',
+          message:
+              'Multi-Message Hub is up to date (v${result.currentVersion}). No new updates available.',
+        );
+      }
+    }
+  }
+
+  void _showUpdateAvailableDialog(UpdateCheckResult update) {
+    const googleBlue = Color(0xFF8AB4F8);
+
+    showDialog(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFF1E1F22),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        titlePadding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 20),
+        actionsPadding: const EdgeInsets.fromLTRB(16, 12, 16, 16),
+        title: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: Colors.greenAccent.withValues(alpha: 0.15),
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.system_update_rounded,
+                  color: Colors.greenAccent, size: 28),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'Update Available!',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  const SizedBox(height: 3),
+                  Row(
+                    children: [
+                      Text(
+                        'v${update.currentVersion}',
+                        style:
+                            const TextStyle(color: Colors.white54, fontSize: 12),
+                      ),
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 6),
+                        child: Icon(Icons.arrow_forward_rounded,
+                            size: 12, color: googleBlue),
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 1),
+                        decoration: BoxDecoration(
+                          color: Colors.greenAccent.withValues(alpha: 0.2),
+                          borderRadius: BorderRadius.circular(4),
+                          border: Border.all(
+                              color: Colors.greenAccent.withValues(alpha: 0.5),
+                              width: 0.5),
+                        ),
+                        child: Text(
+                          'v${update.latestVersion}',
+                          style: const TextStyle(
+                            color: Colors.greenAccent,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                      ),
+                      if (update.formattedApkSize.isNotEmpty) ...[
+                        const SizedBox(width: 6),
+                        Text(
+                          '• ${update.formattedApkSize}',
+                          style: const TextStyle(
+                              color: Colors.white38, fontSize: 11),
+                        ),
+                      ],
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            if (update.releaseTitle != null &&
+                update.releaseTitle!.isNotEmpty) ...[
+              Text(
+                update.releaseTitle!,
+                style: const TextStyle(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w600,
+                  fontSize: 14,
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+            const Text(
+              'What\'s New:',
+              style: TextStyle(
+                color: Colors.white70,
+                fontSize: 11,
+                fontWeight: FontWeight.bold,
+                letterSpacing: 0.5,
+              ),
+            ),
+            const SizedBox(height: 6),
+            Container(
+              constraints: const BoxConstraints(maxHeight: 180),
+              width: double.infinity,
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF282A2E),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFF383A40)),
+              ),
+              child: SingleChildScrollView(
+                child: Text(
+                  update.releaseNotes ??
+                      'Maintenance and performance improvements.',
+                  style: const TextStyle(
+                    color: Colors.white70,
+                    fontSize: 12.5,
+                    height: 1.4,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx),
+            child: const Text('Later', style: TextStyle(color: Colors.white60)),
+          ),
+          ElevatedButton.icon(
+            style: ElevatedButton.styleFrom(
+              backgroundColor: googleBlue,
+              foregroundColor: const Color(0xFF131314),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10)),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            ),
+            icon: const Icon(Icons.download_rounded, size: 18),
+            label: const Text(
+              'Update Now',
+              style: TextStyle(fontWeight: FontWeight.bold),
+            ),
+            onPressed: () {
+              Navigator.pop(ctx);
+              UpdateDownloadDialog.show(context, update);
+            },
+          ),
+        ],
+      ),
+    );
+  }
+
   void _showAboutDialog() {
     const googleBlue = Color(0xFF8AB4F8);
     showDialog(
@@ -608,7 +830,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     ),
                   ),
                   Text(
-                    'Version 1.0.0 (Release)',
+                    'Version 1.0.1 (Release)',
                     style: TextStyle(color: Colors.white60, fontSize: 11),
                   ),
                 ],
@@ -1487,26 +1709,55 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     color: const Color(0xFF282A2E),
                     borderRadius: BorderRadius.circular(14),
                   ),
-                  child: ListTile(
-                    leading: const Icon(Icons.info_outline, color: googleBlue),
-                    title: const Text(
-                      'About Multi-Message Hub',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontWeight: FontWeight.w600,
-                        fontSize: 14,
+                  child: Column(
+                    children: [
+                      ListTile(
+                        leading: const Icon(Icons.system_update_rounded,
+                            color: googleBlue),
+                        title: const Text(
+                          'Check for Updates',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: const Text(
+                          'Current: v1.0.1 • GitHub Releases',
+                          style: TextStyle(color: Colors.white54, fontSize: 12),
+                        ),
+                        trailing: const Icon(Icons.chevron_right,
+                            color: Colors.white38),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _checkForUpdates(isManual: true);
+                        },
                       ),
-                    ),
-                    subtitle: const Text(
-                      'Developer: RIAN ISLAM • Architecture & Specs',
-                      style: TextStyle(color: Colors.white54, fontSize: 12),
-                    ),
-                    trailing:
-                        const Icon(Icons.chevron_right, color: Colors.white38),
-                    onTap: () {
-                      Navigator.pop(ctx);
-                      _showAboutDialog();
-                    },
+                      const Divider(
+                          height: 1, indent: 54, color: Color(0xFF383A40)),
+                      ListTile(
+                        leading:
+                            const Icon(Icons.info_outline, color: googleBlue),
+                        title: const Text(
+                          'About Multi-Message Hub',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                            fontSize: 14,
+                          ),
+                        ),
+                        subtitle: const Text(
+                          'Developer: RIAN ISLAM • Architecture & Specs',
+                          style: TextStyle(color: Colors.white54, fontSize: 12),
+                        ),
+                        trailing:
+                            const Icon(Icons.chevron_right, color: Colors.white38),
+                        onTap: () {
+                          Navigator.pop(ctx);
+                          _showAboutDialog();
+                        },
+                      ),
+                    ],
                   ),
                 ),
 
@@ -2784,6 +3035,24 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                     _showSettingsScreen();
                   },
                 ),
+                ListTile(
+                  leading: const Icon(Icons.system_update_alt_rounded, color: googleBlue),
+                  title: const Text(
+                    'Check for Updates',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
+                  subtitle: const Text(
+                    'v1.0.1 • GitHub Releases',
+                    style: TextStyle(color: Colors.white54, fontSize: 11),
+                  ),
+                  onTap: () {
+                    Navigator.pop(context);
+                    _checkForUpdates(isManual: true);
+                  },
+                ),
               ],
             ),
           ),
@@ -2807,7 +3076,7 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                   ),
                 ),
                 Text(
-                  'v1.0.0',
+                  'v1.0.1',
                   style: TextStyle(fontSize: 10, color: googleBlue.withValues(alpha: 0.8), fontWeight: FontWeight.bold),
                 ),
               ],

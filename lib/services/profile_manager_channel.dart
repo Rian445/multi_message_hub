@@ -53,4 +53,34 @@ class ProfileManagerChannel {
       return false;
     }
   }
+
+  static Future<bool> openUrl(String url) async {
+    try {
+      final bool? result =
+          await _channel.invokeMethod<bool>('openUrl', {'url': url});
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  static Future<String?> getAppCacheDir() async {
+    try {
+      final String? path =
+          await _channel.invokeMethod<String>('getAppCacheDir');
+      return path;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  static Future<bool> installApk(String filePath) async {
+    try {
+      final bool? result =
+          await _channel.invokeMethod<bool>('installApk', {'filePath': filePath});
+      return result ?? false;
+    } catch (e) {
+      return false;
+    }
+  }
 }
