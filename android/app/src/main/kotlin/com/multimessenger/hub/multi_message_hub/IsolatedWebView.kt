@@ -12,9 +12,7 @@ import android.webkit.JavascriptInterface
 import android.webkit.PermissionRequest
 import android.webkit.SslErrorHandler
 import android.webkit.WebChromeClient
-import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -231,33 +229,6 @@ class IsolatedWebView(
                 }
             })();
         """
-
-        const val CONNECTIVITY_MONITOR_JS = """
-            (function() {
-                if (window.__conn_monitor_hooked) return;
-                window.__conn_monitor_hooked = true;
-
-                function notifyStatus(online, reason) {
-                    try {
-                        if (window.FlutterNotifBridge && window.FlutterNotifBridge.onConnectionStatus) {
-                            window.FlutterNotifBridge.onConnectionStatus(online, reason || "");
-                        }
-                    } catch(e) {}
-                }
-
-                window.addEventListener("offline", function() {
-                    notifyStatus(false, "Device is offline");
-                });
-
-                window.addEventListener("online", function() {
-                    notifyStatus(true, "Device is online");
-                });
-
-                if (navigator.onLine === false) {
-                    notifyStatus(false, "Device is offline");
-                }
-            })();
-        """
     }
 
     init {
@@ -351,11 +322,6 @@ class IsolatedWebView(
             override fun onReceivedSslError(view: WebView?, handler: SslErrorHandler?, error: SslError?) {
                 // Strictly deny SSL/TLS errors to protect against MITM attacks
                 handler?.cancel()
-                channel.invokeMethod("onReceivedError", mapOf(
-                    "errorCode" to -1,
-                    "description" to "SSL Security Error",
-                    "failingUrl" to (error?.url ?: "")
-                ))
             }
 
             override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
@@ -363,7 +329,6 @@ class IsolatedWebView(
                 return handleNavigation(view, uri)
             }
 
-            @Suppress("DEPRECATION")
             @Deprecated("Deprecated in Java")
             override fun shouldOverrideUrlLoading(view: WebView?, url: String?): Boolean {
                 if (url == null) return false
@@ -377,59 +342,12 @@ class IsolatedWebView(
                     updateUserAgentForUrl(url)
                 }
                 injectEarlyScripts()
-                channel.invokeMethod("onPageStarted", mapOf("url" to (url ?: "")))
             }
 
             override fun onPageFinished(view: WebView?, url: String?) {
                 super.onPageFinished(view, url)
                 injectPageScripts()
                 channel.invokeMethod("onPageFinished", mapOf("url" to (url ?: "")))
-            }
-
-            override fun onReceivedError(view: WebView?, request: WebResourceRequest?, error: WebResourceError?) {
-                super.onReceivedError(view, request, error)
-                if (request?.isForMainFrame == true) {
-                    val errorCode = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        error?.errorCode ?: -1
-                    } else {
-                        -1
-                    }
-                    val description = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                        error?.description?.toString() ?: "Connection failed"
-                    } else {
-                        "Connection failed"
-                    }
-                    channel.invokeMethod("onReceivedError", mapOf(
-                        "errorCode" to errorCode,
-                        "description" to description,
-                        "failingUrl" to (request.url?.toString() ?: "")
-                    ))
-                }
-            }
-
-            @Suppress("DEPRECATION")
-            @Deprecated("Deprecated in Java")
-            override fun onReceivedError(view: WebView?, errorCode: Int, description: String?, failingUrl: String?) {
-                super.onReceivedError(view, errorCode, description, failingUrl)
-                channel.invokeMethod("onReceivedError", mapOf(
-                    "errorCode" to errorCode,
-                    "description" to (description ?: "Connection failed"),
-                    "failingUrl" to (failingUrl ?: "")
-                ))
-            }
-
-            override fun onReceivedHttpError(view: WebView?, request: WebResourceRequest?, errorResponse: WebResourceResponse?) {
-                super.onReceivedHttpError(view, request, errorResponse)
-                if (request?.isForMainFrame == true) {
-                    val statusCode = errorResponse?.statusCode ?: 200
-                    if (statusCode >= 400) {
-                        channel.invokeMethod("onReceivedError", mapOf(
-                            "errorCode" to statusCode,
-                            "description" to "Server error ($statusCode)",
-                            "failingUrl" to (request.url?.toString() ?: "")
-                        ))
-                    }
-                }
             }
         }
     }
@@ -509,16 +427,6 @@ class IsolatedWebView(
                     ))
                 }
             }
-
-            @JavascriptInterface
-            fun onConnectionStatus(isOnline: Boolean, reason: String) {
-                webView.post {
-                    channel.invokeMethod("onConnectionStatus", mapOf(
-                        "isOnline" to isOnline,
-                        "reason" to reason
-                    ))
-                }
-            }
         }
 
         webView.addJavascriptInterface(Bridge(), JS_BRIDGE_NAME)
@@ -531,11 +439,6 @@ class IsolatedWebView(
                     NOTIFICATION_INSPECTOR_JS,
                     setOf("https://messages.google.com")
                 )
-                WebViewCompat.addDocumentStartJavaScript(
-                    webView,
-                    CONNECTIVITY_MONITOR_JS,
-                    setOf("https://messages.google.com")
-                )
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -544,12 +447,10 @@ class IsolatedWebView(
 
     private fun injectEarlyScripts() {
         webView.evaluateJavascript(NOTIFICATION_INSPECTOR_JS, null)
-        webView.evaluateJavascript(CONNECTIVITY_MONITOR_JS, null)
     }
 
     private fun injectPageScripts() {
         webView.evaluateJavascript(NOTIFICATION_INSPECTOR_JS, null)
-        webView.evaluateJavascript(CONNECTIVITY_MONITOR_JS, null)
         webView.evaluateJavascript(REMEMBER_COMPUTER_JS, null)
         webView.evaluateJavascript(AUTO_QR_SWITCH_JS, null)
         if (isMobileMode) {
@@ -564,12 +465,7 @@ class IsolatedWebView(
     override fun onMethodCall(call: MethodCall, result: MethodChannel.Result) {
         when (call.method) {
             "reload" -> {
-                val currentUrl = webView.url
-                if (currentUrl.isNullOrEmpty() || currentUrl.startsWith("data:") || currentUrl == "about:blank") {
-                    webView.loadUrl(initialUrl)
-                } else {
-                    webView.reload()
-                }
+                webView.reload()
                 result.success(null)
             }
             "loadUrl" -> {

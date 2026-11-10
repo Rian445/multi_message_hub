@@ -1,12 +1,9 @@
-import 'dart:async';
 import 'dart:convert';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
-
-import 'app_lottie_view.dart';
 
 typedef OnNotificationCallback = void Function(
   String uuid,
@@ -41,26 +38,6 @@ class IsolatedWebViewWidget extends StatefulWidget {
 
 class _IsolatedWebViewWidgetState extends State<IsolatedWebViewWidget> {
   IsolatedWebViewController? _controller;
-  bool _isLoading = true;
-  bool _hasError = false;
-  String? _errorMessage;
-
-  void _onControllerStateChanged() {
-    if (!mounted || _controller == null) return;
-    final newLoading = _controller!.isLoading.value;
-    final newError = _controller!.hasError.value;
-    final newErrorMsg = _controller!.errorMessage.value;
-
-    if (newLoading != _isLoading ||
-        newError != _hasError ||
-        newErrorMsg != _errorMessage) {
-      setState(() {
-        _isLoading = newLoading;
-        _hasError = newError;
-        _errorMessage = newErrorMsg;
-      });
-    }
-  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,70 +49,47 @@ class _IsolatedWebViewWidgetState extends State<IsolatedWebViewWidget> {
       'mobileMode': widget.mobileMode,
     };
 
-    return Stack(
-      fit: StackFit.expand,
-      children: [
-        PlatformViewLink(
+    return PlatformViewLink(
+      viewType: viewType,
+      surfaceFactory: (context, controller) {
+        return AndroidViewSurface(
+          controller: controller as AndroidViewController,
+          gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{
+            Factory<OneSequenceGestureRecognizer>(
+              EagerGestureRecognizer.new,
+            ),
+          },
+          hitTestBehavior: PlatformViewHitTestBehavior.opaque,
+        );
+      },
+      onCreatePlatformView: (params) {
+        final AndroidViewController viewController =
+            PlatformViewsService.initExpensiveAndroidView(
+          id: params.id,
           viewType: viewType,
-          surfaceFactory: (context, controller) {
-            return AndroidViewSurface(
-              controller: controller as AndroidViewController,
-              gestureRecognizers: const <Factory<OneSequenceGestureRecognizer>>{
-                Factory<OneSequenceGestureRecognizer>(
-                  EagerGestureRecognizer.new,
-                ),
-              },
-              hitTestBehavior: PlatformViewHitTestBehavior.opaque,
-            );
+          layoutDirection: Directionality.of(context),
+          creationParams: creationParams,
+          creationParamsCodec: const StandardMessageCodec(),
+          onFocus: () {
+            params.onFocusChanged(true);
           },
-          onCreatePlatformView: (params) {
-            final AndroidViewController viewController =
-                PlatformViewsService.initExpensiveAndroidView(
-              id: params.id,
-              viewType: viewType,
-              layoutDirection: Directionality.of(context),
-              creationParams: creationParams,
-              creationParamsCodec: const StandardMessageCodec(),
-              onFocus: () {
-                params.onFocusChanged(true);
-              },
-            );
+        );
 
-            viewController.addOnPlatformViewCreatedListener((int id) {
-              params.onPlatformViewCreated(id);
-              final controller = IsolatedWebViewController(
-                id: id,
-                uuid: widget.uuid,
-                onNotificationReceived: widget.onNotificationReceived,
-                onGoogleSignInAttempted: widget.onGoogleSignInAttempted,
-              );
-              _controller = controller;
-              controller.isLoading.addListener(_onControllerStateChanged);
-              controller.hasError.addListener(_onControllerStateChanged);
-              controller.errorMessage.addListener(_onControllerStateChanged);
-              widget.onControllerCreated?.call(controller);
-            });
+        viewController.addOnPlatformViewCreatedListener((int id) {
+          params.onPlatformViewCreated(id);
+          final controller = IsolatedWebViewController(
+            id: id,
+            uuid: widget.uuid,
+            onNotificationReceived: widget.onNotificationReceived,
+            onGoogleSignInAttempted: widget.onGoogleSignInAttempted,
+          );
+          _controller = controller;
+          widget.onControllerCreated?.call(controller);
+        });
 
-            viewController.create();
-            return viewController;
-          },
-        ),
-
-        // Connection failed or device offline overlay
-        if (_hasError)
-          ProfileConnectionFailedOverlay(
-            profileName: widget.customName,
-            errorMessage: _errorMessage,
-            onRetry: () {
-              _controller?.reload();
-            },
-          )
-        // Loading animation overlay (app launch, profile fetch, or refreshing)
-        else if (_isLoading)
-          ProfileLoadingOverlay(
-            profileName: widget.customName,
-          ),
-      ],
+        viewController.create();
+        return viewController;
+      },
     );
   }
 
@@ -149,9 +103,6 @@ class _IsolatedWebViewWidgetState extends State<IsolatedWebViewWidget> {
 
   @override
   void dispose() {
-    _controller?.isLoading.removeListener(_onControllerStateChanged);
-    _controller?.hasError.removeListener(_onControllerStateChanged);
-    _controller?.errorMessage.removeListener(_onControllerStateChanged);
     _controller?.dispose();
     super.dispose();
   }
@@ -164,12 +115,6 @@ class IsolatedWebViewController {
   final OnGoogleSignInCallback? onGoogleSignInAttempted;
   late final MethodChannel _channel;
 
-  final ValueNotifier<bool> isLoading = ValueNotifier<bool>(true);
-  final ValueNotifier<bool> hasError = ValueNotifier<bool>(false);
-  final ValueNotifier<String?> errorMessage = ValueNotifier<String?>(null);
-
-  Timer? _loadTimeoutTimer;
-
   IsolatedWebViewController({
     required this.id,
     required this.uuid,
@@ -178,72 +123,10 @@ class IsolatedWebViewController {
   }) {
     _channel = MethodChannel('com.multimessenger.hub/webview_$id');
     _channel.setMethodCallHandler(_handleMethodCall);
-    _startTimeoutTimer();
-  }
-
-  void _startTimeoutTimer() {
-    _loadTimeoutTimer?.cancel();
-    _loadTimeoutTimer = Timer(const Duration(seconds: 25), () {
-      if (isLoading.value && !hasError.value) {
-        isLoading.value = false;
-        hasError.value = true;
-        errorMessage.value =
-            'Connection timed out. Unable to reach Google Messages. Please check your internet connection.';
-      }
-    });
   }
 
   Future<dynamic> _handleMethodCall(MethodCall call) async {
     switch (call.method) {
-      case 'onPageStarted':
-        isLoading.value = true;
-        hasError.value = false;
-        errorMessage.value = null;
-        _startTimeoutTimer();
-        break;
-
-      case 'onPageFinished':
-        _loadTimeoutTimer?.cancel();
-        // Give a 600ms grace period so Angular/Web components mount smoothly without flicker
-        Future.delayed(const Duration(milliseconds: 600), () {
-          if (!hasError.value) {
-            isLoading.value = false;
-          }
-        });
-        break;
-
-      case 'onReceivedError':
-        _loadTimeoutTimer?.cancel();
-        final Map<dynamic, dynamic>? args =
-            call.arguments as Map<dynamic, dynamic>?;
-        final String desc =
-            args?['description'] as String? ?? 'Connection failed';
-        isLoading.value = false;
-        hasError.value = true;
-        errorMessage.value =
-            'Cannot connect to Google Messages ($desc). Please check your internet or paired device.';
-        break;
-
-      case 'onConnectionStatus':
-        final Map<dynamic, dynamic>? args =
-            call.arguments as Map<dynamic, dynamic>?;
-        final bool isOnline = args?['isOnline'] as bool? ?? true;
-        final String reason = args?['reason'] as String? ?? '';
-        if (!isOnline) {
-          _loadTimeoutTimer?.cancel();
-          isLoading.value = false;
-          hasError.value = true;
-          errorMessage.value = reason.isNotEmpty
-              ? reason
-              : 'Device is offline. Check your internet connection.';
-        } else {
-          // If connection is restored while in error state, automatically reload
-          if (hasError.value) {
-            reload();
-          }
-        }
-        break;
-
       case 'onNotificationReceived':
         final Map<dynamic, dynamic>? args =
             call.arguments as Map<dynamic, dynamic>?;
@@ -262,29 +145,23 @@ class IsolatedWebViewController {
           }
         }
         break;
-
       case 'onGoogleSignInAttempted':
         final Map<dynamic, dynamic>? args =
             call.arguments as Map<dynamic, dynamic>?;
         final String targetUrl = args?['url'] as String? ?? '';
         onGoogleSignInAttempted?.call(uuid, targetUrl);
         break;
+      case 'onPageFinished':
+        debugPrint('WebView [$uuid] loaded: ${call.arguments}');
+        break;
     }
   }
 
   Future<void> reload() async {
-    isLoading.value = true;
-    hasError.value = false;
-    errorMessage.value = null;
-    _startTimeoutTimer();
     await _channel.invokeMethod('reload');
   }
 
   Future<void> loadUrl(String url) async {
-    isLoading.value = true;
-    hasError.value = false;
-    errorMessage.value = null;
-    _startTimeoutTimer();
     await _channel.invokeMethod('loadUrl', {'url': url});
   }
 
@@ -305,7 +182,6 @@ class IsolatedWebViewController {
   }
 
   void dispose() {
-    _loadTimeoutTimer?.cancel();
     _channel.setMethodCallHandler(null);
   }
 }

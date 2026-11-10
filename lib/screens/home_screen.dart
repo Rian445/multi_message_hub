@@ -2263,6 +2263,11 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
               icon: const Icon(Icons.refresh),
               onPressed: () {
                 activeController?.reload();
+                StatusFeedbackDialog.showInfo(
+                  context,
+                  title: 'Reloading',
+                  message: 'Refreshing "${activeInstance.customName}"...',
+                );
               },
             ),
           PopupMenuButton<String>(
@@ -2697,6 +2702,12 @@ class _HomeScreenState extends State<HomeScreen> with WidgetsBindingObserver {
                                   _showRenameDialog(index);
                                 } else if (val == 'reload') {
                                   _controllers[instance.uuid]?.reload();
+                                  StatusFeedbackDialog.showInfo(
+                                    context,
+                                    title: 'Reloading',
+                                    message:
+                                        'Refreshing "${instance.customName}"...',
+                                  );
                                 } else if (val == 'delete') {
                                   _deleteInstance(index);
                                 }
